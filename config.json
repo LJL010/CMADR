@@ -4,8 +4,8 @@
   "model_root": "model",
   "round": 1,
   "device": "cpu",
-  "num_satellites": 10,
-  "num_ground_stations": 5,
+  "num_satellites": 1464,
+  "num_ground_stations": 261,
   "train_seed": 42,
   "predict_seed": 100,
   "train": {

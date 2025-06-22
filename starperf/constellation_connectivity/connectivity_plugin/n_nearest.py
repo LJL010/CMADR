@@ -178,4 +178,3 @@ def n_nearest(constellation , dT , n):
                 current_shell_group.create_dataset('timeslot' + str(t), data=delay)
 
 #todo   这里可以提供各个时刻的各壳层之间卫星的链接isl状态（important）和延迟
-#todo:   上述的代码只是建立了卫星与卫星之间的联系，还需手动建立基站与卫星之间的联系

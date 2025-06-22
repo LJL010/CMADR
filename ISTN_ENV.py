@@ -14,7 +14,8 @@ class ISTNEnv:
         gs_positions=None,
         queries=None,
         sat_positions_per_slot=None,
-        conn_threshold=30,
+        conn_threshold_min = 500,
+        conn_threshold_max=2000,
     ):
         """ISTN 环境
 
@@ -44,8 +45,8 @@ class ISTNEnv:
             for _ in range(self.num_ground_stations)
         ]
 
-        self.conn_threshold = conn_threshold
-
+        self.conn_threshold_min = conn_threshold_min
+        self.conn_threshold_max = conn_threshold_max
         # sort queries by time slot; each query should have {'src','dst','time'}
         self.queries = sorted(queries or [], key=lambda q: q.get('time', 0))
         self.query_index = 0  # pointer to next query to release
@@ -60,21 +61,20 @@ class ISTNEnv:
 
     # 1.把真实的数据搞下来
     # 2.用n_nearest.py中的函数替换掉下面的函数
-
-    # todo"""需要更改的地方，可以用n_nearest.py中的函数替换掉下面的函数"""
-    # todo:"""加一个参数用于接受shell【4】，然后针对每一个壳进行下述的建立邻居"""
-    # todo:"""只需要考虑shell【4】上的卫星就好了"""
     def _build_neighbors(self):
         """Build neighbors based on current node positions."""
         neighbors = {i: set() for i in range(self.n_agents)}
 
         # satellite-satellite links
+        isl_num = 4
         for i in range(self.num_satellites):
             for j in range(self.num_satellites):
+                if len(neighbors[i]) >= isl_num:
+                    break
                 if i == j:
                     continue
                 dist = np.linalg.norm(np.array(self.sat_positions[i]) - np.array(self.sat_positions[j]))
-                if dist <= self.conn_threshold:
+                if self.conn_threshold_min <= dist <= self.conn_threshold_max:
                     neighbors[i].add(j)
 
         # satellite-ground links
@@ -82,7 +82,7 @@ class ISTNEnv:
             gs_pos = self.gs_positions[gs]
             for sat in range(self.num_satellites):
                 dist = np.linalg.norm(np.array(self.sat_positions[sat]) - np.array(gs_pos))
-                if dist <= self.conn_threshold:
+                if dist <= 635:
                     neighbors[sat].add(self.num_satellites + gs)
                     neighbors[self.num_satellites + gs].add(sat)
 

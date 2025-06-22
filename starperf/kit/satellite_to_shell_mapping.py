@@ -79,7 +79,6 @@ def satellite_to_shell_mapping(constellation_name):
         shells.append(SHELL.shell(lai[0] , lai[1] , "shell" + str(count)))
         count = count + 1
 
-    # todo:xml的更新时间截止是2023，但是下载的tle.h5数据是截止到当前时间，这样会不会有误差？建议更新xml到截止时间
     # TLE data file
     #constellation_json_TLE_file = "config/TLE_constellation/" + constellation_name + "/tle.h5"
     constellation_json_TLE_file = "/Users/bytedance/Desktop/StarPerf_Simulator/CMADR/starperf/data/TLE_constellation/Starlink/tle.h5"
