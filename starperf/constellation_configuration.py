@@ -7,11 +7,11 @@ Date : 2023/12/09
 Function : Generate and initialize constellation using TLE data
 
 '''
-import kit.get_satellite_position as GET_SATELLITE_POSITION
-import entity.constellation as CONSTELLATION
-import download_TLE_data as DOWNLOAD_TLE_DATA
-import kit.satellite_to_shell_mapping as SATELLITE_TO_SHELL_MAPPING
-import kit.satellite_to_orbit_mapping as SATELLITE_TO_ORBIT_MAPPING
+import starperf.kit.get_satellite_position as GET_SATELLITE_POSITION
+import starperf.entity.constellation as CONSTELLATION
+import starperf.download_TLE_data as DOWNLOAD_TLE_DATA
+import starperf.kit.satellite_to_shell_mapping as SATELLITE_TO_SHELL_MAPPING
+import starperf.kit.satellite_to_orbit_mapping as SATELLITE_TO_ORBIT_MAPPING
 from datetime import datetime, timedelta
 import os
 import h5py
@@ -98,7 +98,7 @@ def constellation_configuration(dT , constellation_name):
     return constellation
 
 
-def connection(constellation):
+def connection(constellation,dT=1000):
     # initialize the connectivity mode plugin manager
     connectionModePluginManager = connectivity_mode_plugin_manager.connectivity_mode_plugin_manager()
     # execute the connectivity mode and build ISLs between satellites
@@ -140,11 +140,12 @@ if __name__ == '__main__':
     dT = 1000
     constellation_name = "Starlink"
     starlink_temp = constellation_configuration(dT,constellation_name)
-    starlink = connection(starlink_temp)
+    starlink = connection(starlink_temp,dT)
     print(starlink.shells)
 
-    for shell in starlink.shells:
-        print(shell.orbit_cycle)
+    aver = 0
+    for satellite in starlink.shells[4].satellites:
+        aver = aver + satellite.altitude
 
 
 
