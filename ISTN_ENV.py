@@ -58,6 +58,12 @@ class ISTNEnv:
         self.action_dim = num_satellites + num_ground_stations
         self.reset()
 
+    # 1.把真实的数据搞下来
+    # 2.用n_nearest.py中的函数替换掉下面的函数
+
+    # todo"""需要更改的地方，可以用n_nearest.py中的函数替换掉下面的函数"""
+    # todo:"""加一个参数用于接受shell【4】，然后针对每一个壳进行下述的建立邻居"""
+    # todo:"""只需要考虑shell【4】上的卫星就好了"""
     def _build_neighbors(self):
         """Build neighbors based on current node positions."""
         neighbors = {i: set() for i in range(self.n_agents)}

@@ -30,8 +30,8 @@ def main(config_path: str):
 
     train_cfg = cfg.get('train', {})
     if not os.path.exists(data_path):
-        from data_generator import generate_dataset
-        data = generate_dataset(
+        from data_generator import generate_train_predict_dataset
+        data = generate_train_predict_dataset(
             train_cfg.get('num_satellites', 5),
             train_cfg.get('num_ground_stations', 5),
             train_cfg.get('num_queries', 10),
