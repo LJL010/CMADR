@@ -82,7 +82,7 @@ class ISTNEnv:
             gs_pos = self.gs_positions[gs]
             for sat in range(self.num_satellites):
                 dist = np.linalg.norm(np.array(self.sat_positions[sat]) - np.array(gs_pos))
-                if dist <= 635:
+                if dist <= 700:
                     neighbors[sat].add(self.num_satellites + gs)
                     neighbors[self.num_satellites + gs].add(sat)
 
