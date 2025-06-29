@@ -1,5 +1,6 @@
 import numpy as np
 import random
+import time
 
 class ISTNEnv:
     def __init__(
@@ -180,6 +181,7 @@ class ISTNEnv:
         return obs
 
 
+    # todo：可以结合FFmpeg的特性来增强模拟的真实感
     def step(self, actions, neighbors):
         """
         actions: list, 每个agent选一个邻居，将其buffer头部包转发过去（有包才转）
@@ -189,6 +191,15 @@ class ISTNEnv:
         delivered_packets = []
         transit_packets = []
         rewards = np.zeros(self.n_agents)
+
+        # 新增：FFmpeg参数配置
+        ffmpeg_params = {
+            'bitrate': '1000k',  # 比特率，影响数据包大小
+            'packet_size': 1316,  # RTP包大小（字节）
+            'fps': 30,  # 帧率，影响发送频率
+            'latency': 20,  # 编解码延迟（毫秒）
+            'packet_loss_rate': 0.02  # 丢包率
+        }
         
         # 调试：检查地面站buffer
         # if self.time_slot < 3:
@@ -252,13 +263,43 @@ class ISTNEnv:
                         #     print(f"        Invalid target GS index: {tgt_gs_idx}")
                         rewards[idx] -= 0.1
                         continue
-                    
+
+                # 新增：计算数据包传输时间
+                # 基于FFmpeg的比特率和数据包大小计算传输延迟
+                packet_size_bits = ffmpeg_params['packet_size'] * 8
+                bitrate_kbps = int(ffmpeg_params['bitrate'].replace('k', '')) * 1000
+                transmission_delay = packet_size_bits / bitrate_kbps  # 秒
+
+                # 新增：模拟网络延迟 todo：可以根据真实距离的长短来决定这个延迟
+                network_delay = random.uniform(0.01, 0.1)  # 10-100ms
+                total_delay = transmission_delay + network_delay + (ffmpeg_params['latency'] / 1000)
+
+                # 新增：模拟丢包
+                if random.random() < ffmpeg_params['packet_loss_rate']:
+                    node['buffer'].pop(0)
+                    cost_loss += 1
+                    rewards[idx] -= 2.0  # 丢包惩罚
+                    continue
+
+                # 新增：模拟处理延迟（FFmpeg编解码延迟）
+                if self.simulate_processing_delay:
+                    time.sleep(total_delay / self.simulation_speed)  # 按比例缩放时间
+
                 # 缓冲是否满
                 if len(tgt_node['buffer']) < self.max_buffer:
                     # 路径+1跳
                     pkt = node['buffer'].pop(0)
                     pkt['hop'] += 1
                     pkt['path'].append(target)
+                    pkt['delay'] += total_delay  # 记录累积延迟
+                    # 新增：添加基于FFmpeg的数据包属性
+                    if 'ffmpeg_info' not in pkt:
+                        pkt['ffmpeg_info'] = {
+                            'codec': 'h264',
+                            'bitrate': ffmpeg_params['bitrate'],
+                            'packet_size': ffmpeg_params['packet_size'],
+                            'frame_type': 'I' if random.random() < 0.1 else 'P'  # I帧概率10%
+                        }
                     tgt_node['buffer'].append(pkt)
                     
                     # if self.time_slot < 3:
@@ -268,17 +309,20 @@ class ISTNEnv:
                     if (target >= self.num_satellites) and ((target - self.num_satellites) == dst_gs):
                         delivered_packets.append(pkt)
                         tgt_node['buffer'].pop()  # 交付出队
-                        rewards[idx] += 5.0  # 成功交付大奖励
+                        delivery_reward = 5.0 * (1 - min(1, pkt['delay'] / 2.0)) * (1 - min(1, pkt['hop'] / 10.0))
+                        rewards[idx] += delivery_reward
                         # if self.time_slot < 3:
                         #     print(f"        DELIVERED! Packet reached destination GS{dst_gs}")
                     else:
                         # 基础转发奖励
-                        rewards[idx] += 0.1
+                        forward_reward = 0.1 * (1 - min(1, pkt['delay'] / 2.0))
+                        rewards[idx] += forward_reward
                         transit_packets.append(pkt)
-                            
-                    # 能耗
-                    node['energy'] -= 0.01
-                    cost_energy[idx] += 0.01
+
+                    # 能耗 - 基于数据包大小
+                    energy_cost = 0.01 * (ffmpeg_params['packet_size'] / 1316)  # 归一化能耗计算
+                    node['energy'] -= energy_cost
+                    cost_energy[idx] += energy_cost
                     
                     # if self.time_slot < 3:
                     #     print(f"        Energy cost: {cost_energy[idx]:.3f}")
@@ -321,6 +365,13 @@ class ISTNEnv:
                 gs = self.ground_stations[gs_idx]
                 if len(gs['buffer']) < self.max_buffer:
                     pkt = self._create_packet()
+                    # 添加FFmpeg信息到新创建的数据包
+                    pkt['ffmpeg_info'] = {
+                        'codec': 'h264',
+                        'bitrate': ffmpeg_params['bitrate'],
+                        'packet_size': ffmpeg_params['packet_size'],
+                        'frame_type': 'I' if random.random() < 0.1 else 'P'
+                    }
                     gs['buffer'].append(pkt)
 
         obs = self.get_obs(neighbors)
@@ -328,7 +379,12 @@ class ISTNEnv:
             'delivered_packets': len(delivered_packets),
             'packets_in_transit': len(transit_packets),
             'total_cost_loss': cost_loss,
-            'delays': [self.time_slot - pkt['start_time'] for pkt in delivered_packets],
+            'delays': [pkt['delay'] for pkt in delivered_packets],
+            'avg_delay': np.mean([pkt['delay'] for pkt in delivered_packets]) if delivered_packets else 0,
+            'avg_hops': np.mean([pkt['hop'] for pkt in delivered_packets]) if delivered_packets else 0,
+            'ffmpeg_bitrate': ffmpeg_params['bitrate'],
+            'ffmpeg_packet_size': ffmpeg_params['packet_size'],
+            'ffmpeg_fps': ffmpeg_params['fps']
         }
         costs = {'energy': cost_energy, 'loss': cost_loss}
         
