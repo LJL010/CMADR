@@ -116,7 +116,14 @@ class ISTNEnv:
         dst = self.random.randint(0, self.num_ground_stations - 1)
         while dst == src:
             dst = self.random.randint(0, self.num_ground_stations - 1)
-        return {'dst': dst, 'hop': 0, 'src': src, 'path': [], 'start_time': self.time_slot}
+        return {
+            'dst': dst,
+            'hop': 0,
+            'src': src,
+            'path': [],
+            'start_time': self.time_slot,
+            'delay': 0.0  # 新增：初始化延迟为0
+        }
 
     def _create_packet_from_query(self, src, dst):
         """根据给定的查询生成数据包"""
@@ -270,8 +277,21 @@ class ISTNEnv:
                 bitrate_kbps = int(ffmpeg_params['bitrate'].replace('k', '')) * 1000
                 transmission_delay = packet_size_bits / bitrate_kbps  # 秒
 
-                # 新增：模拟网络延迟 todo：可以根据真实距离的长短来决定这个延迟
-                network_delay = random.uniform(0.01, 0.1)  # 10-100ms
+                # 新增：模拟网络延迟 - 根据真实距离计算
+                if idx < self.num_satellites:
+                    src_pos = self.sat_positions[idx]
+                else:
+                    src_pos = self.gs_positions[idx - self.num_satellites]
+
+                if target < self.num_satellites:
+                    dst_pos = self.sat_positions[target]
+                else:
+                    dst_pos = self.gs_positions[target - self.num_satellites]
+
+                distance = np.linalg.norm(np.array(src_pos) - np.array(dst_pos))
+                # 光速约为3e8 m/s，计算传播延迟
+                propagation_delay = distance / 3e8  # 秒
+                network_delay = propagation_delay + random.uniform(0.005, 0.05)  # 5-50ms抖动
                 total_delay = transmission_delay + network_delay + (ffmpeg_params['latency'] / 1000)
 
                 # 新增：模拟丢包
@@ -287,6 +307,9 @@ class ISTNEnv:
                     pkt = node['buffer'].pop(0)
                     pkt['hop'] += 1
                     pkt['path'].append(target)
+                    # 确保delay属性存在
+                    if 'delay' not in pkt:
+                        pkt['delay'] = 0.0
                     pkt['delay'] += total_delay  # 记录累积延迟
                     # 新增：添加基于FFmpeg的数据包属性
                     if 'ffmpeg_info' not in pkt:
@@ -316,7 +339,7 @@ class ISTNEnv:
                         transit_packets.append(pkt)
 
                     # 能耗 - 基于数据包大小
-                    energy_cost = 0.01 * (ffmpeg_params['packet_size'] / 1316)  # 归一化能耗计算
+                    energy_cost = 0.01 * (ffmpeg_params['packet_size'] / 1316) * (distance / 1000)  # 距离影响能耗
                     node['energy'] -= energy_cost
                     cost_energy[idx] += energy_cost
                     
@@ -380,7 +403,11 @@ class ISTNEnv:
             'avg_hops': np.mean([pkt['hop'] for pkt in delivered_packets]) if delivered_packets else 0,
             'ffmpeg_bitrate': ffmpeg_params['bitrate'],
             'ffmpeg_packet_size': ffmpeg_params['packet_size'],
-            'ffmpeg_fps': ffmpeg_params['fps']
+            'ffmpeg_fps': ffmpeg_params['fps'],
+            'avg_distance': np.mean([np.linalg.norm(np.array(self.gs_positions[pkt['dst']]) -
+                                                    (self.sat_positions[pkt['path'][-1]] if pkt['path'] else
+                                                     self.gs_positions[pkt['src']]))
+                                     for pkt in delivered_packets]) if delivered_packets else 0
         }
         costs = {'energy': cost_energy, 'loss': cost_loss}
         
