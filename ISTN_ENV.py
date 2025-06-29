@@ -281,10 +281,6 @@ class ISTNEnv:
                     rewards[idx] -= 2.0  # 丢包惩罚
                     continue
 
-                # 新增：模拟处理延迟（FFmpeg编解码延迟）
-                if self.simulate_processing_delay:
-                    time.sleep(total_delay / self.simulation_speed)  # 按比例缩放时间
-
                 # 缓冲是否满
                 if len(tgt_node['buffer']) < self.max_buffer:
                     # 路径+1跳
