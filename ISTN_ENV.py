@@ -403,11 +403,11 @@ class ISTNEnv:
             'avg_hops': np.mean([pkt['hop'] for pkt in delivered_packets]) if delivered_packets else 0,
             'ffmpeg_bitrate': ffmpeg_params['bitrate'],
             'ffmpeg_packet_size': ffmpeg_params['packet_size'],
-            'ffmpeg_fps': ffmpeg_params['fps'],
-            'avg_distance': np.mean([np.linalg.norm(np.array(self.gs_positions[pkt['dst']]) -
-                                                    (self.sat_positions[pkt['path'][-1]] if pkt['path'] else
-                                                     self.gs_positions[pkt['src']]))
-                                     for pkt in delivered_packets]) if delivered_packets else 0
+            'ffmpeg_fps': ffmpeg_params['fps']
+            # 'avg_distance': np.mean([np.linalg.norm(np.array(self.gs_positions[pkt['dst']]) -
+            #                                         (self.sat_positions[pkt['path'][-1]] if pkt['path'] else
+            #                                          self.gs_positions[pkt['src']]))
+            #                          for pkt in delivered_packets]) if delivered_packets else 0
         }
         costs = {'energy': cost_energy, 'loss': cost_loss}
         
