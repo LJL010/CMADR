@@ -1,5 +1,8 @@
 import numpy as np
 import random
+from math import radians, cos, sin, asin, sqrt
+import os
+import json
 
 class ISTNEnv:
     def __init__(
@@ -8,7 +11,7 @@ class ISTNEnv:
         num_ground_stations,
         max_buffer=10,
         max_energy=1.0,
-        max_time=100,
+        max_time=48,
         seed=0,
         sat_positions=None,
         gs_positions=None,
@@ -16,6 +19,7 @@ class ISTNEnv:
         sat_positions_per_slot=None,
         conn_threshold_min = 500,
         conn_threshold_max=2000,
+        time_slot=0,
     ):
         """ISTN 环境
 
@@ -23,6 +27,7 @@ class ISTNEnv:
         则随机生成。 ``queries`` 用于在 ``reset`` 时初始化地面站 buffer，方便在训
         练和预测阶段保持一致的数据输入。
         """
+        self.time_slot = time_slot
         self.num_satellites = num_satellites
         self.num_ground_stations = num_ground_stations
         self.max_buffer = max_buffer
@@ -57,37 +62,70 @@ class ISTNEnv:
         max_possible_neighbors = num_satellites + num_ground_stations - 1
         self.obs_dim = 3 + 3 * max_possible_neighbors + 1   # 末尾+1为“到目的地的距离”
         self.action_dim = num_satellites + num_ground_stations
-        self.reset()
 
     # 1.把真实的数据搞下来
     # 2.用n_nearest.py中的函数替换掉下面的函数
+    # def _build_neighbors(self):
+    #     """Build neighbors based on current node positions."""
+    #     neighbors = {i: set() for i in range(self.n_agents)}
+    #     # satellite-satellite links
+    #     isl_num = 4
+    #     for i in range(self.num_satellites):
+    #         for j in range(self.num_satellites):
+    #             if len(neighbors[i]) >= isl_num:
+    #                 break
+    #             if i == j:
+    #                 continue
+    #             dist = self.distance_two_satellites(self.sat_positions[i], self.sat_positions[j])
+    #             if self.conn_threshold_min <= dist <= self.conn_threshold_max:
+    #                 neighbors[i].add(j)
+    #
+    #     # satellite-ground links
+    #     for gs in range(self.num_ground_stations):
+    #         gs_pos = self.gs_positions[gs]
+    #         for sat in range(self.num_satellites):
+    #             dist = self.distance_two_satellites(self.sat_positions[sat], gs_pos)
+    #             if dist <= 700:
+    #                 neighbors[sat].add(self.num_satellites + gs)
+    #                 neighbors[self.num_satellites + gs].add(sat)
+    #     # convert sets to sorted lists
+    #     return {k: sorted(list(v)) for k, v in neighbors.items()}
+
     def _build_neighbors(self):
         """Build neighbors based on current node positions."""
-        neighbors = {i: set() for i in range(self.n_agents)}
+        cache_file = os.path.join(
+            "neighbors_data",
+            f"neighbors_slot_{self.time_slot}.json"
+        )
+        if os.path.exists(cache_file):
+            try:
+                # 从文件读取缓存数据
+                with open(cache_file, 'r') as f:
+                    neighbors = json.load(f)
+                # 将列表转换回集合（如果需要）
+                return {k: sorted(v) for k, v in neighbors.items()}
+            except Exception as e:
+                print(f"读取缓存失败 (slot={self.time_slot}): {e}")
 
-        # satellite-satellite links
-        isl_num = 4
-        for i in range(self.num_satellites):
-            for j in range(self.num_satellites):
-                if len(neighbors[i]) >= isl_num:
-                    break
-                if i == j:
-                    continue
-                dist = np.linalg.norm(np.array(self.sat_positions[i]) - np.array(self.sat_positions[j]))
-                if self.conn_threshold_min <= dist <= self.conn_threshold_max:
-                    neighbors[i].add(j)
 
-        # satellite-ground links
-        for gs in range(self.num_ground_stations):
-            gs_pos = self.gs_positions[gs]
-            for sat in range(self.num_satellites):
-                dist = np.linalg.norm(np.array(self.sat_positions[sat]) - np.array(gs_pos))
-                if dist <= 700:
-                    neighbors[sat].add(self.num_satellites + gs)
-                    neighbors[self.num_satellites + gs].add(sat)
-
-        # convert sets to sorted lists
-        return {k: sorted(list(v)) for k, v in neighbors.items()}
+    def distance_two_satellites(self, satellite1, satellite2):
+        longitude1 = satellite1[0]
+        latitude1 = satellite1[1]
+        longitude2 = satellite2[0]
+        latitude2 = satellite2[1]
+        # The altitude is the average altitude of the two satellites, in kilometers
+        altitude = 1.0 * (satellite1[2] + satellite2[2]) / 2
+        longitude1, latitude1, longitude2, latitude2 = map(radians,
+                                                           [float(longitude1), float(latitude1), float(longitude2),
+                                                            float(latitude2)])  # 经纬度转换成弧度
+        dlon = longitude2 - longitude1
+        dlat = latitude2 - latitude1
+        a = sin(dlat / 2) ** 2 + cos(latitude1) * cos(latitude2) * sin(dlon / 2) ** 2
+        # The average radius of the earth is 6371km, and the satellite orbit altitude is 6371km.
+        distance = 2 * asin(sqrt(a)) * (6371.0 + altitude) * 1000
+        # Convert the result to kilometers with three decimal places.
+        distance = np.round(distance / 1000, 3)
+        return distance
 
     def initialize_satellites(self):
         satellites = {}
@@ -328,7 +366,7 @@ class ISTNEnv:
             'delivered_packets': len(delivered_packets),
             'packets_in_transit': len(transit_packets),
             'total_cost_loss': cost_loss,
-            'delays': [self.time_slot - pkt['start_time'] for pkt in delivered_packets],
+            'delays': [120*(self.time_slot - pkt['start_time']) for pkt in delivered_packets], # 秒级别
         }
         costs = {'energy': cost_energy, 'loss': cost_loss}
         

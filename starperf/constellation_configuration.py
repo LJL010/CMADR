@@ -136,6 +136,49 @@ def process_tle_data(tle_tuples, output_file="starlink_tle.csv"):
 
     print(f"成功处理 {len(tle_tuples)} 组TLE数据并保存到 {output_file}")
 
+
+import json
+from datetime import datetime, timedelta
+def save_longitude_latitude_altitude_data(shell, output_file="satellite_positions.json"):
+    # 生成时间点列表（每120秒一个点，直到轨道周期结束）
+    orbit_period = shell.orbit_cycle
+    moments = []
+    current_time = datetime.now()
+    end_time = current_time + timedelta(seconds=orbit_period)
+    while current_time <= end_time:
+        moments.append(current_time)
+        current_time += timedelta(seconds=120)
+    # 初始化结果结构：[时间点][卫星][经纬度]
+    sat_positions_per_slot = []
+    for moment in moments:
+        satellite_positions = []
+        for satellite in shell.satellites:
+            TLE_2LE = [satellite.tle_2le[0], satellite.tle_2le[1]]
+
+            year, month, day = moment.year, moment.month, moment.day
+            hour, minute, second = moment.hour, moment.minute, moment.second
+
+            position = GET_SATELLITE_POSITION.get_satellite_position(
+                TLE_2LE, year, month, day, hour, minute, second
+            )
+            longitude = position[0][0]
+            latitude = position[0][1]
+            altitude = position[0][2]
+            # 添加到当前时间点的卫星位置列表
+            satellite_positions.append([longitude, latitude, altitude])
+        # 将当前时间点的所有卫星位置添加到结果中
+        sat_positions_per_slot.append(satellite_positions)
+    # 构建完整JSON结构
+    result = {
+        "sat_positions_per_slot": sat_positions_per_slot
+    }
+
+    # 保存到JSON文件
+    with open(output_file, 'w') as f:
+        json.dump(result, f, indent=2)
+    print(f"卫星位置数据已保存到 {output_file}")
+
+
 if __name__ == '__main__':
     dT = 1000
     constellation_name = "Starlink"
@@ -143,14 +186,9 @@ if __name__ == '__main__':
     starlink = connection(starlink_temp,dT)
     print(starlink.shells)
 
-    aver = 0
-    for satellite in starlink.shells[4].satellites:
-        aver = aver + satellite.altitude
+    save_longitude_latitude_altitude_data(starlink.shells[4])
 
 
 
-    # starlink_tle_data = []
-    # for satellite in starlink.shells[4].satellites:
-    #     starlink_tle_data.append(satellite.tle_2le)
-    #
-    # process_tle_data(starlink_tle_data, "kit/starlink_tle.csv")
+
+# todo：生产数据就是从这里开始生产的！
