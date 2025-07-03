@@ -12,7 +12,6 @@ def load_data(path: str) -> dict:
     with open(path, 'r') as f:
         return json.load(f)
 
-# 协作搭建neighbors
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='config.json', help='Path to config file')
@@ -32,12 +31,22 @@ if __name__ == '__main__':
         gs_positions=[tuple(p) for p in data['gs_positions']],
         queries=data['predict_queries'],
     )
-    # 创建保存目录（如果不存在）
+
+
     output_dir = "neighbors_data"
     os.makedirs(output_dir, exist_ok=True)
+    while env.time_slot < env.max_time:
+        env.sat_positions = [np.array(p) for p in env.sat_positions_per_slot[env.time_slot]]
+        neighbors = env._build_neighbors()
+        # 使用 env.time_slot 生成文件名
+        filename = os.path.join(output_dir, f"neighbors_slot_{env.time_slot}.json")
+        # 保存结果到文件
+        try:
+            with open(filename, 'w') as f:
+                json.dump(neighbors, f, indent=2)
+            print(f"Neighbors data saved to {filename}")
+        except Exception as e:
+            print(f"Error saving file {filename}: {e}")
 
-    env.time_slot += 1
-    neighbors = env._build_neighbors()
-    print(neighbors)
-    print("------------------")
-    print({k: sorted(v) for k, v in neighbors.items()})
+        # 继续下一个时间步
+        env.time_slot += 1

@@ -33,6 +33,9 @@ def evaluate(env: ISTNEnv, mac: MultiAgentSystem):
         total_delay += sum(info['delays'])
     loss_rate = total_loss / (delivered + total_loss) if delivered + total_loss > 0 else 0
     avg_delay = total_delay / delivered if delivered > 0 else 0
+    print(total_loss)
+    print(delivered)
+    print(total_delay)
     return loss_rate, total_energy, avg_delay
 
 

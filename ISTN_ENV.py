@@ -93,19 +93,16 @@ class ISTNEnv:
 
     def _build_neighbors(self):
         """Build neighbors based on current node positions."""
-        cache_file = os.path.join(
-            "neighbors_data",
-            f"neighbors_slot_{self.time_slot}.json"
-        )
-        if os.path.exists(cache_file):
-            try:
-                # 从文件读取缓存数据
-                with open(cache_file, 'r') as f:
-                    neighbors = json.load(f)
-                # 将列表转换回集合（如果需要）
-                return {k: sorted(v) for k, v in neighbors.items()}
-            except Exception as e:
-                print(f"读取缓存失败 (slot={self.time_slot}): {e}")
+        filename = f"neighbors_data/neighbors_slot_{self.time_slot}.json"
+        try:
+            # 从文件读取缓存数据
+            with open(filename, 'r') as f:
+                neighbors = json.load(f)
+            # 将列表转换回集合（如果需要）
+            integer_key_dict = {int(k): v for k, v in neighbors.items()}
+            return integer_key_dict
+        except Exception as e:
+            print(f"读取缓存失败 (slot={self.time_slot}): {e}")
 
 
     def distance_two_satellites(self, satellite1, satellite2):
