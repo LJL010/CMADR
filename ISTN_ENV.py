@@ -224,16 +224,7 @@ class ISTNEnv:
         delivered_packets = []
         transit_packets = []
         rewards = np.zeros(self.n_agents)
-        
-        # 调试：检查地面站buffer
-        # if self.time_slot < 3:
-        #     #print(f"    Ground stations buffer status:")
-        #     for i in range(self.num_ground_stations):
-        #         gs_agent_id = self.num_satellites + i  # 地面站的agent ID
-        #         buffer_size = len(self.ground_stations[i]['buffer'])
-        #         print(f"      GS {i} (Agent {gs_agent_id}): {buffer_size} packets")
-        
-        # 转发
+
         for idx, action in enumerate(actions):
             # 确定当前节点 - 修复索引问题
             if idx < self.num_satellites:
@@ -249,30 +240,19 @@ class ISTNEnv:
                     rewards[idx] -= 0.1
                     continue
 
-            # if self.time_slot < 3:
-            #     buffer_size = len(node['buffer'])
-            #     print(f"      Agent {idx}({node_type}): buffer_size={buffer_size}")
-
             if node['buffer']:
                 pkt = node['buffer'][0]
                 dst_gs = pkt['dst']
                 
-                # if self.time_slot < 3:
-                #     print(f"        Found packet with dst={dst_gs}")
-                
                 # 检查动作有效性
                 current_neighbors = neighbors.get(idx, [])
                 if action >= len(current_neighbors):
-                    # if self.time_slot < 3:
-                    #     print(f"        Invalid action: {action} >= {len(current_neighbors)}")
+                    print(f"动作无效！！！")
                     rewards[idx] -= 0.1
                     continue
-                    
+                print("action", action)
                 target = current_neighbors[action]
-                
-                # if self.time_slot < 3:
-                #     print(f"        Trying to forward to target={target}")
-                
+                print("target", target)
                 # 确定目标节点
                 if target < self.num_satellites:
                     tgt_node = self.satellites[target]
@@ -283,8 +263,7 @@ class ISTNEnv:
                         tgt_node = self.ground_stations[tgt_gs_idx]
                         tgt_type = f"GS{tgt_gs_idx}"
                     else:
-                        # if self.time_slot < 3:
-                        #     print(f"        Invalid target GS index: {tgt_gs_idx}")
+                        print("下一步节点不在范围之内")
                         rewards[idx] -= 0.1
                         continue
                     
@@ -296,40 +275,32 @@ class ISTNEnv:
                     pkt['path'].append(target)
                     tgt_node['buffer'].append(pkt)
                     
-                    # if self.time_slot < 3:
-                    #     print(f"        SUCCESS! Forwarded from {node_type} to {tgt_type}")
-                    
                     # 若目标是地面站且正好为目的地，则交付
                     if (target >= self.num_satellites) and ((target - self.num_satellites) == dst_gs):
                         delivered_packets.append(pkt)
+                        print("成功交付一个数据包到终点！")
                         tgt_node['buffer'].pop()  # 交付出队
                         rewards[idx] += 5.0  # 成功交付大奖励
-                        # if self.time_slot < 3:
-                        #     print(f"        DELIVERED! Packet reached destination GS{dst_gs}")
                     else:
                         # 基础转发奖励
+                        print("虽然没有到终点，但是成功交付给下一个节点了！")
                         rewards[idx] += 0.1
                         transit_packets.append(pkt)
                             
                     # 能耗
                     node['energy'] -= 0.01
                     cost_energy[idx] += 0.01
-                    
-                    # if self.time_slot < 3:
-                    #     print(f"        Energy cost: {cost_energy[idx]:.3f}")
                 else:
                     # 丢包
+                    print("下一步节点没有缓存，造成丢包！")
                     node['buffer'].pop(0)
                     cost_loss += 1
                     rewards[idx] -= 2.0  # 丢包惩罚
-                    # if self.time_slot < 3:
-                    #     print(f"        DROPPED! Target buffer full")
                     
             else:
                 # 没有包可转发，小惩罚
+                print("没有buffer了")
                 rewards[idx] -= 0.05
-                # if self.time_slot < 3 and idx >= self.num_satellites:
-                #     print(f"        {node_type}: No packets to forward, penalty -0.05")
 
         # 其余代码保持不变...
         # 添加全局奖励成分，但不要完全覆盖个体奖励

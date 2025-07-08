@@ -26,16 +26,19 @@ def evaluate(env: ISTNEnv, mac: MultiAgentSystem):
     while not done:
         neighbors = env._build_neighbors()
         actions = mac.select_actions(obs, neighbors)
+        print("actions is :", actions)
         obs, reward, done, costs, info = env.step(actions, neighbors)
         total_loss += costs['loss']
         total_energy += float(np.sum(costs['energy']))
         delivered += info['delivered_packets']
+        packets_in_transit = info['packets_in_transit']
         total_delay += sum(info['delays'])
     loss_rate = total_loss / (delivered + total_loss) if delivered + total_loss > 0 else 0
     avg_delay = total_delay / delivered if delivered > 0 else 0
-    print(total_loss)
-    print(delivered)
-    print(total_delay)
+    print("total_loss is:", total_loss)
+    print("delivered is:", delivered)
+    print("total_delay is:", total_delay)
+    print("packets_in_transit is:", packets_in_transit)
     return loss_rate, total_energy, avg_delay
 
 

@@ -352579,59 +352579,59 @@
     {
         "src": 4,
         "dst": 3,
-        "time": 48
+        "time": 5
     }
   ],
   "predict_queries": [
       {
           "src": 3,
           "dst": 4,
-          "time": 48
+          "time": 1
       },
       {
           "src": 1,
           "dst": 0,
-          "time": 23
+          "time": 2
       },
       {
           "src": 4,
           "dst": 1,
-          "time": 43
+          "time": 2
       },
       {
           "src": 1,
           "dst": 2,
-          "time": 40
+          "time": 3
       },
       {
           "src": 3,
           "dst": 0,
-          "time": 46
+          "time": 3
       },
       {
           "src": 1,
           "dst": 4,
-          "time": 15
+          "time": 3
       },
       {
           "src": 2,
           "dst": 1,
-          "time": 48
+          "time": 4
       },
       {
           "src": 3,
           "dst": 0,
-          "time": 36
+          "time": 4
       },
       {
           "src": 3,
           "dst": 1,
-          "time": 47
+          "time": 4
       },
       {
           "src": 3,
           "dst": 4,
-          "time": 45
+          "time": 18
       }
   ]
 }
