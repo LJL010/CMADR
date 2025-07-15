@@ -9,7 +9,7 @@ class ISTNEnv:
         self,
         num_satellites,
         num_ground_stations,
-        max_buffer=100,
+        max_buffer=10,
         max_energy=1.0,
         max_time=48,
         seed=0,
@@ -291,11 +291,6 @@ class ISTNEnv:
                     node['energy'] -= 0.01
                     cost_energy[idx] += 0.01
                 else:
-
-
-
-
-
                     # 丢包
                     print("下一步节点没有缓存，造成丢包！")
                     node['buffer'].pop(0)
