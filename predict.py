@@ -26,7 +26,7 @@ def evaluate(env: ISTNEnv, mac: MultiAgentSystem):
     while not done:
         neighbors = env._build_neighbors()
         actions = mac.select_actions(obs, neighbors)
-        print("actions is :", actions)
+        #print("actions is :", actions)
         obs, reward, done, costs, info = env.step(actions, neighbors)
         total_loss += costs['loss']
         total_energy += float(np.sum(costs['energy']))

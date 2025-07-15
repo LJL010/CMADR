@@ -4,20 +4,20 @@
   "model_root": "model",
   "round": 1,
   "device": "cpu",
-  "num_satellites": 1463,
+  "num_satellites": 1462,
   "num_ground_stations": 261,
   "train_seed": 42,
   "predict_seed": 100,
   "train": {
-    "num_episodes": 30,
+    "num_episodes": 50,
     "gamma": 0.98,
     "cost_limits": {"energy": 0.5, "loss": 5},
-    "train_queries": 10,
-    "max_time": 48
+    "train_queries": 1000,
+    "max_time": 478
   },
   "predict": {
     "model_path": "model/round_30_LEO_01",
-    "max_time": 48,
-    "predict_queries": 10
+    "max_time": 478,
+    "predict_queries": 1000
   }
 }

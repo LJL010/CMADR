@@ -27,7 +27,7 @@ if __name__ == '__main__':
         num_satellites=len(data['sat_positions_per_slot'][0]),
         num_ground_stations=len(data['gs_positions']),
         max_time=cfg.get('predict', {}).get('max_time', len(data['sat_positions_per_slot'])),
-        sat_positions_per_slot=data['sat_positions_per_slot'],
+        sat_positions_per_slot=data['sat_positions_per_slot'], # todo：需要把运行constellation_configuration.py生成各个时刻的位置信息存到LEO_01.json里再进行这一步
         gs_positions=[tuple(p) for p in data['gs_positions']],
         queries=data['predict_queries'],
     )

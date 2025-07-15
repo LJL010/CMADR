@@ -24,7 +24,7 @@ import starperf.constellation_connectivity.connectivity_mode_plugin_manager as c
 # constellation_name : the name of the constellation to be generated, used to read the TLE data file
 def constellation_configuration(dT , constellation_name):
     # download TLE data for the current day
-    #DOWNLOAD_TLE_DATA.download_TLE_data(constellation_name)
+    DOWNLOAD_TLE_DATA.download_TLE_data(constellation_name)
     # establish the correspondence between satellites and shells
     shells = SATELLITE_TO_SHELL_MAPPING.satellite_to_shell_mapping(constellation_name)
     # establish the correspondence between satellites and orbits
@@ -39,7 +39,7 @@ def constellation_configuration(dT , constellation_name):
 
     # determine whether the .h5 file of the delay and satellite position data of the current constellation exists. If
     # it exists, delete the file and create an empty .h5 file. If it does not exist, directly create an empty .h5 file.
-    file_path = "/Users/bytedance/Desktop/StarPerf_Simulator/StarPerf_Simulator/data/TLE_constellation/" + constellation_name + ".h5"
+    file_path = "/Users/shaoyang/Desktop/CMADR/CMADR/starperf/data/TLE_constellation/" + constellation_name + ".h5"
     if os.path.exists(file_path):
         # if the .h5 file exists, delete the file
         os.remove(file_path)
@@ -144,7 +144,7 @@ def save_longitude_latitude_altitude_data(shell, output_file="satellite_position
     orbit_period = shell.orbit_cycle
     moments = []
     current_time = datetime.now()
-    end_time = current_time + timedelta(seconds=orbit_period)
+    end_time = current_time + 10*timedelta(seconds=orbit_period)
     while current_time <= end_time:
         moments.append(current_time)
         current_time += timedelta(seconds=120)
