@@ -291,11 +291,6 @@ class ISTNEnv:
                     node['energy'] -= 0.01
                     cost_energy[idx] += 0.01
                 else:
-
-
-
-
-
                     # 丢包
                     print("下一步节点没有缓存，造成丢包！")
                     node['buffer'].pop(0)
@@ -304,7 +299,7 @@ class ISTNEnv:
                     
             else:
                 # 没有包可转发，小惩罚
-                print("没有buffer了")
+                #print("没有buffer了")
                 rewards[idx] -= 0.05
 
         # 其余代码保持不变...
