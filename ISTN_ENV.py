@@ -14,9 +14,11 @@ class ISTNEnv:
         max_time=48,
         seed=0,
         sat_positions=None,
+        meo_positions=None,
         gs_positions=None,
         queries=None,
         sat_positions_per_slot=None,
+        sat_positions_per_slot_GPS=None,
         conn_threshold_min = 500,
         conn_threshold_max=2000,
         time_slot=0,
@@ -37,6 +39,9 @@ class ISTNEnv:
         self.n_agents = num_satellites + num_ground_stations
 
         self.sat_positions_per_slot = sat_positions_per_slot
+        self.sat_positions_per_slot_GPS = sat_positions_per_slot_GPS
+        if sat_positions_per_slot_GPS is not None:
+            self.meo_positions = [np.array(p) for p in sat_positions_per_slot_GPS[0]]
 
         if sat_positions_per_slot is not None:
             self.sat_positions = [np.array(p) for p in sat_positions_per_slot[0]]
@@ -65,44 +70,64 @@ class ISTNEnv:
 
     # 1.把真实的数据搞下来
     # 2.用n_nearest.py中的函数替换掉下面的函数
-    def _build_neighbors(self):
-        """Build neighbors based on current node positions."""
-        neighbors = {i: set() for i in range(self.n_agents)}
-        # satellite-satellite links
-        isl_num = 4
-        for i in range(self.num_satellites):
-            for j in range(self.num_satellites):
-                if len(neighbors[i]) >= isl_num:
-                    break
-                if i == j:
-                    continue
-                dist = self.distance_two_satellites(self.sat_positions[i], self.sat_positions[j])
-                if self.conn_threshold_min <= dist <= self.conn_threshold_max:
-                    neighbors[i].add(j)
-
-        # satellite-ground links
-        for gs in range(self.num_ground_stations):
-            gs_pos = self.gs_positions[gs]
-            for sat in range(self.num_satellites):
-                dist = self.distance_two_satellites(self.sat_positions[sat], gs_pos)
-                if dist <= 700:
-                    neighbors[sat].add(self.num_satellites + gs)
-                    neighbors[self.num_satellites + gs].add(sat)
-        # convert sets to sorted lists
-        return {k: sorted(list(v)) for k, v in neighbors.items()}
-
     # def _build_neighbors(self):
     #     """Build neighbors based on current node positions."""
-    #     filename = f"neighbors_data/neighbors_slot_{self.time_slot}.json"
-    #     try:
-    #         # 从文件读取缓存数据
-    #         with open(filename, 'r') as f:
-    #             neighbors = json.load(f)
-    #         # 将列表转换回集合（如果需要）
-    #         integer_key_dict = {int(k): v for k, v in neighbors.items()}
-    #         return integer_key_dict
-    #     except Exception as e:
-    #         print(f"读取缓存失败 (slot={self.time_slot}): {e}")
+    #     total_agents = self.num_satellites + self.num_ground_stations + 32
+    #     neighbors = {i: set() for i in range(total_agents)}
+    #     # satellite-satellite links
+    #     isl_num = 4
+    #     for i in range(self.num_satellites):
+    #         for j in range(self.num_satellites):
+    #             if len(neighbors[i]) >= isl_num:
+    #                 break
+    #             if i == j:
+    #                 continue
+    #             dist = self.distance_two_satellites(self.sat_positions[i], self.sat_positions[j])
+    #             if self.conn_threshold_min <= dist <= self.conn_threshold_max:
+    #                 neighbors[i].add(j)
+    #
+    #     # satellite-ground links
+    #     for gs in range(self.num_ground_stations):
+    #         gs_pos = self.gs_positions[gs]
+    #         gs_index = self.num_satellites + gs  # 地面站索引
+    #         for sat in range(self.num_satellites):
+    #             dist = self.distance_two_satellites(self.sat_positions[sat], gs_pos)
+    #             if dist <= 700:
+    #                 neighbors[sat].add(gs_index)
+    #                 neighbors[gs_index].add(sat)
+    #
+    #     meo_start_index = self.num_satellites + self.num_ground_stations
+    #     for leo_idx in range(self.num_satellites):
+    #         min_distance = float('inf')
+    #         closest_meo_idx = -1
+    #
+    #         # 找到最近的MEO卫星
+    #         for meo_idx in range(32):
+    #             dist = self.distance_two_satellites(self.sat_positions[leo_idx], self.meo_positions[meo_idx])
+    #             if dist < min_distance:
+    #                 min_distance = dist
+    #                 closest_meo_idx = meo_idx
+    #
+    #         # 建立双向链接
+    #         if closest_meo_idx != -1:
+    #             meo_global_idx = meo_start_index + closest_meo_idx
+    #             neighbors[leo_idx].add(meo_global_idx)
+    #             neighbors[meo_global_idx].add(leo_idx)
+    #     # convert sets to sorted lists
+    #     return {k: sorted(list(v)) for k, v in neighbors.items()}
+
+    def _build_neighbors(self):
+        """Build neighbors based on current node positions."""
+        filename = f"neighbors_data/neighbors_slot_{self.time_slot}.json"
+        try:
+            # 从文件读取缓存数据
+            with open(filename, 'r') as f:
+                neighbors = json.load(f)
+            # 将列表转换回集合（如果需要）
+            integer_key_dict = {int(k): v for k, v in neighbors.items()}
+            return integer_key_dict
+        except Exception as e:
+            print(f"读取缓存失败 (slot={self.time_slot}): {e}")
 
 
     def distance_two_satellites(self, satellite1, satellite2):

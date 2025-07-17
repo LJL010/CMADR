@@ -25,12 +25,14 @@ if __name__ == '__main__':
         max_time=len(data['sat_positions_per_slot']),
         sat_positions_per_slot=data['sat_positions_per_slot'],
         gs_positions=[tuple(p) for p in data['gs_positions']],
+        sat_positions_per_slot_GPS=data['sat_positions_per_slot_GPS']
     )
 
     output_dir = "neighbors_data_slot_test"
     os.makedirs(output_dir, exist_ok=True)
     while env.time_slot < env.max_time:
         env.sat_positions = [np.array(p) for p in env.sat_positions_per_slot[env.time_slot]]
+        env.meo_positions = [np.array(p) for p in env.sat_positions_per_slot_GPS[env.time_slot]]
         neighbors = env._build_neighbors()
         # 使用 env.time_slot 生成文件名
         filename = os.path.join(output_dir, f"neighbors_slot_{env.time_slot}.json")

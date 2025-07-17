@@ -251,7 +251,7 @@ def save_longitude_latitude_altitude_data(shell, output_file="satellite_position
 
     # 预先创建所有卫星对象
     satellite_objects = calculator.create_satellite_objects(shell.satellites)
-
+    # 顺便把GPS的位置信息也同步生产出来！！
     GPS.main(current_time, orbit_period)
 
     # 批量计算所有位置
