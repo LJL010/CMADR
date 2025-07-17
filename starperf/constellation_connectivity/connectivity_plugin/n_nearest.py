@@ -85,7 +85,7 @@ def find_satellites_in_the_shell_and_between_shortestdistance_and_longestdistanc
 # dT : the time interval
 # n : each satellite can establish up to n ISLs
 def n_nearest(constellation , dT , n):
-    file_path = "/Users/bytedance/Desktop/StarPerf_Simulator/CMADR/starperf/data/TLE_constellation/" + constellation.constellation_name + ".h5"
+    file_path = "/Users/shaoyang/Desktop/CMADR/CMADR/starperf/data/TLE_constellation/" + constellation.constellation_name + ".h5"
     with h5py.File(file_path, 'a') as file:
         # get a list of root-level group names
         root_group_names = list(file.keys())
@@ -100,7 +100,7 @@ def n_nearest(constellation , dT , n):
 
     # get ISL shortest distance and longest distance (unit : km)
     ISL_distance_range_file_path = \
-        "/Users/bytedance/Desktop/StarPerf_Simulator/CMADR/starperf/constellation_connectivity/connectivity_plugin/ISL_distance_range.xml"
+        "/Users/shaoyang/Desktop/CMADR/CMADR/starperf/constellation_connectivity/connectivity_plugin/ISL_distance_range.xml"
     ISL_distance_range = read_xml_file(ISL_distance_range_file_path)
     shortest_distance = float(ISL_distance_range["ISL_distance_range"]["shortest_distance"])
     longest_distance = float(ISL_distance_range["ISL_distance_range"]["longest_distance"])

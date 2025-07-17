@@ -39,3 +39,12 @@ def get_satellite_position(TLE, year, month, day, hour, minute, second):
         altitude = subpoint.elevation.km
         satellite_positions.append((longitude, latitude, altitude))
     return satellite_positions
+
+if __name__ == "__main__":
+    sample_tle = [
+        "1 25544U 98067A   23329.37916667  .00002182  00000-0  40858-4 0  9990",
+        "2 25544  51.6461 339.7939 0001258  92.2360 267.9496 15.49309620426818"
+    ]
+
+    positions = get_satellite_position(sample_tle, 2023, 11, 26, 12, 0, 0)
+    print(f"卫星位置: {positions}")

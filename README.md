@@ -83,3 +83,5 @@ CMADR/
 ├── config.json          # 默认配置文件
 └── README.md            # 项目说明
 ```
+## 如何生存邻居信息的数据：运行constellation_configuration.py生成各个时刻的位置信息（因为执行好leo的卫星生成之后会携带者meo卫星位置的生成，所以执行这个文件之后leo和
+## meo的卫星的位置都会生成到文件里），运行neighbors.py（仅仅为了生成leo和leo卫星之间&leo卫星与地面站之间的isl连接关系）生存并保存邻居信息！

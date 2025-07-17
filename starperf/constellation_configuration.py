@@ -15,16 +15,70 @@ import starperf.kit.satellite_to_orbit_mapping as SATELLITE_TO_ORBIT_MAPPING
 from datetime import datetime, timedelta
 import os
 import h5py
+import gen_GPS_data.gen_GPS_data as GPS
+from skyfield.api import load, EarthSatellite
+
 
 
 import starperf.constellation_connectivity.connectivity_mode_plugin_manager as connectivity_mode_plugin_manager
+
+class OptimizedSatellitePositionCalculator:
+    def __init__(self):
+        # 只加载一次时间尺度
+        self.ts = load.timescale()
+
+    def create_satellite_objects(self, satellites_tle_data):
+        """预先创建所有卫星对象"""
+        satellite_objects = []
+        for satellite_data in satellites_tle_data:
+            tle_2le = satellite_data.tle_2le
+            tle_line1 = tle_2le[0].strip()
+            tle_line2 = tle_2le[1].strip()
+            satellite_obj = EarthSatellite(tle_line1, tle_line2, 'SAT', self.ts)
+            satellite_objects.append(satellite_obj)
+        return satellite_objects
+
+    def calculate_positions_batch(self, satellite_objects, time_points):
+        """批量计算多个时间点的卫星位置"""
+        all_positions = []
+        for time_point in time_points:
+            t = self.ts.utc(time_point.year, time_point.month, time_point.day,
+                            time_point.hour, time_point.minute, time_point.second)
+            time_positions = []
+            for satellite_obj in satellite_objects:
+                topocentric = satellite_obj.at(t)
+                subpoint = topocentric.subpoint()
+                longitude = subpoint.longitude.degrees
+                latitude = subpoint.latitude.degrees
+                altitude = subpoint.elevation.km
+                time_positions.append([longitude, latitude, altitude])
+            all_positions.append(time_positions)
+        return all_positions
+
+    def calculate_positions_batch_GPS(self, satellite_objects, time_points):
+        """批量计算多个时间点的卫星位置"""
+        all_positions = []
+        for time_point in time_points:
+            t = self.ts.utc(time_point.year, time_point.month, time_point.day,
+                            time_point.hour, time_point.minute, time_point.second)
+            time_positions = []
+            for satellite_obj in satellite_objects:
+                topocentric = satellite_obj.at(t)
+                subpoint = topocentric.subpoint()
+                longitude = subpoint.longitude.degrees
+                latitude = subpoint.latitude.degrees
+                altitude = subpoint.elevation.km
+                time_positions.append([longitude, latitude, altitude])
+            all_positions.append(time_positions)
+        return all_positions
+
 
 # Parameters:
 # dT : the timeslot, and the timeslot t is calculated from 1
 # constellation_name : the name of the constellation to be generated, used to read the TLE data file
 def constellation_configuration(dT , constellation_name):
     # download TLE data for the current day
-    #DOWNLOAD_TLE_DATA.download_TLE_data(constellation_name)
+    DOWNLOAD_TLE_DATA.download_TLE_data(constellation_name)
     # establish the correspondence between satellites and shells
     shells = SATELLITE_TO_SHELL_MAPPING.satellite_to_shell_mapping(constellation_name)
     # establish the correspondence between satellites and orbits
@@ -39,7 +93,7 @@ def constellation_configuration(dT , constellation_name):
 
     # determine whether the .h5 file of the delay and satellite position data of the current constellation exists. If
     # it exists, delete the file and create an empty .h5 file. If it does not exist, directly create an empty .h5 file.
-    file_path = "/Users/bytedance/Desktop/StarPerf_Simulator/StarPerf_Simulator/data/TLE_constellation/" + constellation_name + ".h5"
+    file_path = "/Users/shaoyang/Desktop/CMADR/CMADR/starperf/data/TLE_constellation/" + constellation_name + ".h5"
     if os.path.exists(file_path):
         # if the .h5 file exists, delete the file
         os.remove(file_path)
@@ -139,36 +193,71 @@ def process_tle_data(tle_tuples, output_file="starlink_tle.csv"):
 
 import json
 from datetime import datetime, timedelta
+# def save_longitude_latitude_altitude_data(shell, output_file="satellite_positions.json"):
+#     # 生成时间点列表（每120秒一个点，直到轨道周期结束）
+#     orbit_period = shell.orbit_cycle
+#     moments = []
+#     current_time = datetime.now()
+#     end_time = current_time + timedelta(seconds=orbit_period)
+#     while current_time <= end_time:
+#         moments.append(current_time)
+#         current_time += timedelta(seconds=3)
+#     # 初始化结果结构：[时间点][卫星][经纬度]
+#     sat_positions_per_slot = []
+#     for moment in moments:
+#         satellite_positions = []
+#         for satellite in shell.satellites:
+#             TLE_2LE = [satellite.tle_2le[0], satellite.tle_2le[1]]
+#
+#             year, month, day = moment.year, moment.month, moment.day
+#             hour, minute, second = moment.hour, moment.minute, moment.second
+#
+#             position = GET_SATELLITE_POSITION.get_satellite_position(
+#                 TLE_2LE, year, month, day, hour, minute, second
+#             )
+#             longitude = position[0][0]
+#             latitude = position[0][1]
+#             altitude = position[0][2]
+#             # 添加到当前时间点的卫星位置列表
+#             satellite_positions.append([longitude, latitude, altitude])
+#         # 将当前时间点的所有卫星位置添加到结果中
+#         sat_positions_per_slot.append(satellite_positions)
+#     # 构建完整JSON结构
+#     result = {
+#         "sat_positions_per_slot": sat_positions_per_slot
+#     }
+#
+#     # 保存到JSON文件
+#     with open(output_file, 'w') as f:
+#         json.dump(result, f, indent=2)
+#     print(f"卫星位置数据已保存到 {output_file}")
+
 def save_longitude_latitude_altitude_data(shell, output_file="satellite_positions.json"):
-    # 生成时间点列表（每120秒一个点，直到轨道周期结束）
+    """优化后的版本 - 直接替换原函数"""
+
+    # 创建优化计算器
+    calculator = OptimizedSatellitePositionCalculator()
+
+    # 生成时间点列表（保持原来的逻辑）
     orbit_period = shell.orbit_cycle
     moments = []
     current_time = datetime.now()
-    end_time = current_time + timedelta(seconds=orbit_period)
+    end_time = current_time + 2*timedelta(seconds=orbit_period)
     while current_time <= end_time:
         moments.append(current_time)
-        current_time += timedelta(seconds=120)
-    # 初始化结果结构：[时间点][卫星][经纬度]
-    sat_positions_per_slot = []
-    for moment in moments:
-        satellite_positions = []
-        for satellite in shell.satellites:
-            TLE_2LE = [satellite.tle_2le[0], satellite.tle_2le[1]]
+        current_time += timedelta(seconds=2)
 
-            year, month, day = moment.year, moment.month, moment.day
-            hour, minute, second = moment.hour, moment.minute, moment.second
+    print(f"正在计算 {len(moments)} 个时间点，{len(shell.satellites)} 个卫星的位置...")
 
-            position = GET_SATELLITE_POSITION.get_satellite_position(
-                TLE_2LE, year, month, day, hour, minute, second
-            )
-            longitude = position[0][0]
-            latitude = position[0][1]
-            altitude = position[0][2]
-            # 添加到当前时间点的卫星位置列表
-            satellite_positions.append([longitude, latitude, altitude])
-        # 将当前时间点的所有卫星位置添加到结果中
-        sat_positions_per_slot.append(satellite_positions)
-    # 构建完整JSON结构
+    # 预先创建所有卫星对象
+    satellite_objects = calculator.create_satellite_objects(shell.satellites)
+
+    GPS.main(current_time, orbit_period)
+
+    # 批量计算所有位置
+    sat_positions_per_slot = calculator.calculate_positions_batch(satellite_objects, moments)
+
+    # 构建完整JSON结构（保持原来的格式）
     result = {
         "sat_positions_per_slot": sat_positions_per_slot
     }
@@ -176,6 +265,7 @@ def save_longitude_latitude_altitude_data(shell, output_file="satellite_position
     # 保存到JSON文件
     with open(output_file, 'w') as f:
         json.dump(result, f, indent=2)
+
     print(f"卫星位置数据已保存到 {output_file}")
 
 
