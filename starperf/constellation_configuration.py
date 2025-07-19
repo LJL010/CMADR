@@ -144,10 +144,10 @@ def save_longitude_latitude_altitude_data(shell, output_file="satellite_position
     orbit_period = shell.orbit_cycle
     moments = []
     current_time = datetime.now()
-    end_time = current_time + 10*timedelta(seconds=orbit_period)
+    end_time = current_time + 2*timedelta(seconds=orbit_period)
     while current_time <= end_time:
         moments.append(current_time)
-        current_time += timedelta(seconds=120)
+        current_time += timedelta(seconds=12)
     # 初始化结果结构：[时间点][卫星][经纬度]
     sat_positions_per_slot = []
     for moment in moments:

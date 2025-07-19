@@ -29,21 +29,9 @@ def main(config_path: str):
     data_path = os.path.join(data_dir, f"{data_name}.json")
 
     train_cfg = cfg.get('train', {})
-    if not os.path.exists(data_path):
-        from data_generator import generate_train_predict_dataset
-        data = generate_train_predict_dataset(
-            train_cfg.get('num_satellites', 5),
-            train_cfg.get('num_ground_stations', 5),
-            train_cfg.get('num_queries', 10),
-            train_cfg.get('max_time', 50),
-        )
-        os.makedirs(data_dir, exist_ok=True)
-        with open(data_path, 'w') as f:
-            json.dump(data, f, indent=2)
-    else:
-        with open(data_path, 'r') as f:
-            data = json.load(f)
 
+    with open(data_path, 'r') as f:
+        data = json.load(f)
 
     env = build_env_from_data(data, cfg)
     mac = MultiAgentSystem(
