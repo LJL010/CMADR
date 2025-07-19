@@ -272,7 +272,7 @@ class ISTNEnv:
                 # 检查动作有效性
                 current_neighbors = neighbors.get(idx, [])
                 if action >= len(current_neighbors):
-                    print(f"动作无效！！！")
+                    #print(f"动作无效！！！")
                     rewards[idx] -= 0.1
                     continue
                 #print("action", action)
