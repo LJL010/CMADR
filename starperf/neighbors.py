@@ -28,7 +28,7 @@ if __name__ == '__main__':
         sat_positions_per_slot_GPS=data['sat_positions_per_slot_GPS']
     )
 
-    output_dir = "/Users/shaoyang/Desktop/CMADR/CMADR/neighbors_data_slot_test"
+    output_dir = "/Users/shaoyang/Desktop/CMADR/CMADR/neighbors_data"
     os.makedirs(output_dir, exist_ok=True)
     while env.time_slot < env.max_time:
         env.sat_positions = [np.array(p) for p in env.sat_positions_per_slot[env.time_slot]]

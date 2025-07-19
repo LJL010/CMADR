@@ -70,31 +70,33 @@ class ISTNEnv:
 
     # 1.把真实的数据搞下来
     # 2.用n_nearest.py中的函数替换掉下面的函数
-    def _build_neighbors(self):
-        """Build neighbors based on current node positions."""
-        total_agents = self.num_satellites + self.num_ground_stations
-        neighbors = {i: set() for i in range(total_agents)}
-        # satellite-satellite links
-        isl_num = 4
-        for i in range(self.num_satellites):
-            for j in range(self.num_satellites):
-                if len(neighbors[i]) >= isl_num:
-                    break
-                if i == j:
-                    continue
-                dist = self.distance_two_satellites(self.sat_positions[i], self.sat_positions[j])
-                if self.conn_threshold_min <= dist <= self.conn_threshold_max:
-                    neighbors[i].add(j)
+    # def _build_neighbors(self):
+    #     """Build neighbors based on current node positions."""
+    #     total_agents = self.num_satellites + self.num_ground_stations
+    #     neighbors = {i: set() for i in range(total_agents)}
+    #     # satellite-satellite links
+    #     isl_num = 4
+    #     for i in range(self.num_satellites):
+    #         for j in range(self.num_satellites):
+    #             if len(neighbors[i]) >= isl_num:
+    #                 break
+    #             if i == j:
+    #                 continue
+    #             dist = self.distance_two_satellites(self.sat_positions[i], self.sat_positions[j])
+    #             if self.conn_threshold_min <= dist <= self.conn_threshold_max:
+    #                 neighbors[i].add(j)
+    #
+    #     # satellite-ground links
+    #     for gs in range(self.num_ground_stations):
+    #         gs_pos = self.gs_positions[gs]
+    #         gs_index = self.num_satellites + gs  # 地面站索引
+    #         for sat in range(self.num_satellites):
+    #             dist = self.distance_two_satellites(self.sat_positions[sat], gs_pos)
+    #             if dist <= 700:
+    #                 neighbors[sat].add(gs_index)
+    #                 neighbors[gs_index].add(sat)
+    #     return {k: sorted(list(v)) for k, v in neighbors.items()}
 
-        # satellite-ground links
-        for gs in range(self.num_ground_stations):
-            gs_pos = self.gs_positions[gs]
-            gs_index = self.num_satellites + gs  # 地面站索引
-            for sat in range(self.num_satellites):
-                dist = self.distance_two_satellites(self.sat_positions[sat], gs_pos)
-                if dist <= 700:
-                    neighbors[sat].add(gs_index)
-                    neighbors[gs_index].add(sat)
     #
     #     meo_start_index = self.num_satellites + self.num_ground_stations
     #     for leo_idx in range(self.num_satellites):
@@ -114,20 +116,20 @@ class ISTNEnv:
     #             neighbors[leo_idx].add(meo_global_idx)
     #             neighbors[meo_global_idx].add(leo_idx)
         # convert sets to sorted lists
-        return {k: sorted(list(v)) for k, v in neighbors.items()}
+        #return {k: sorted(list(v)) for k, v in neighbors.items()}
 
-    # def _build_neighbors(self):
-    #     """Build neighbors based on current node positions."""
-    #     filename = f"neighbors_data/neighbors_slot_{self.time_slot}.json"
-    #     try:
-    #         # 从文件读取缓存数据
-    #         with open(filename, 'r') as f:
-    #             neighbors = json.load(f)
-    #         # 将列表转换回集合（如果需要）
-    #         integer_key_dict = {int(k): v for k, v in neighbors.items()}
-    #         return integer_key_dict
-    #     except Exception as e:
-    #         print(f"读取缓存失败 (slot={self.time_slot}): {e}")
+    def _build_neighbors(self):
+        """Build neighbors based on current node positions."""
+        filename = f"neighbors_data/neighbors_slot_{self.time_slot}.json"
+        try:
+            # 从文件读取缓存数据
+            with open(filename, 'r') as f:
+                neighbors = json.load(f)
+            # 将列表转换回集合（如果需要）
+            integer_key_dict = {int(k): v for k, v in neighbors.items()}
+            return integer_key_dict
+        except Exception as e:
+            print(f"读取缓存失败 (slot={self.time_slot}): {e}")
 
 
     def distance_two_satellites(self, satellite1, satellite2):
@@ -331,6 +333,7 @@ class ISTNEnv:
             global_bonus = len(delivered_packets) * 2.0
             rewards += global_bonus / self.n_agents  # 平均分配全局奖励
 
+        # 导致进入下一个循环的关键代码
         self.time_slot += 1
 
         # release queries scheduled for the new time slot
