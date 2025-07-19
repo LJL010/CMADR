@@ -277,7 +277,7 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
              global_cost_loss_to_go)
 
         # 打印训练日志
-        if ep % 10 == 0:
+        if ep % 1 == 0:
             print(
                 f"\nEpisode {ep}: reward={ep_reward:.2f} energy={ep_energy_cost:.2f} "
                 f"loss={ep_loss_cost:.2f} λ_e={lagrange_energy().item():.2f} "
