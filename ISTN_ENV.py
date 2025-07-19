@@ -340,7 +340,7 @@ class ISTNEnv:
                     # === 改进7：更智能的丢包惩罚 ===
                     node['buffer'].pop(0)
                     cost_loss += 1
-
+                    #print("由于节点的缓存不够造成丢包！")
                     # 基础丢包惩罚
                     drop_penalty = 2.0
                     # 跳数惩罚
