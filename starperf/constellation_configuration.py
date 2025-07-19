@@ -24,7 +24,7 @@ import starperf.constellation_connectivity.connectivity_mode_plugin_manager as c
 # constellation_name : the name of the constellation to be generated, used to read the TLE data file
 def constellation_configuration(dT , constellation_name):
     # download TLE data for the current day
-    DOWNLOAD_TLE_DATA.download_TLE_data(constellation_name)
+    #DOWNLOAD_TLE_DATA.download_TLE_data(constellation_name)
     # establish the correspondence between satellites and shells
     shells = SATELLITE_TO_SHELL_MAPPING.satellite_to_shell_mapping(constellation_name)
     # establish the correspondence between satellites and orbits
