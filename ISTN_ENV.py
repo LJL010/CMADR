@@ -281,12 +281,10 @@ class ISTNEnv:
                 # 确定目标节点
                 if target < self.num_satellites:
                     tgt_node = self.satellites[target]
-                    tgt_type = f"SAT{target}"
                 else:
                     tgt_gs_idx = target - self.num_satellites
                     if tgt_gs_idx < len(self.ground_stations):
                         tgt_node = self.ground_stations[tgt_gs_idx]
-                        tgt_type = f"GS{tgt_gs_idx}"
                     else:
                         print("下一步节点不在范围之内")
                         rewards[idx] -= 0.1
