@@ -157,6 +157,5 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
         # joint_obs = obs_batch.reshape(obs_batch.shape[0], -1)  # [T, n_agents*obs_dim]
         # mac.global_critic(joint_obs)  # ...
 
-        if ep % 10 == 0:
-            print(f"\nEpisode {ep}: reward={ep_reward:.2f} energy={ep_energy_cost:.2f} loss={ep_loss_cost:.2f} λ_e={lagrange_energy().item():.2f}\n")
+        print(f"\nEpisode {ep}: reward={ep_reward:.2f} energy={ep_energy_cost:.2f} loss={ep_loss_cost:.2f} λ_e={lagrange_energy().item():.2f}\n")
 

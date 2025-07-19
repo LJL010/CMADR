@@ -15,7 +15,7 @@ def load_data(path: str) -> dict:
 
 if __name__ == '__main__':
 
-    data_dir = Path("/Users/shaoyang/Desktop/CMADR/CMADR/starperf")
+    data_dir = Path("/Users/shaoyang/Desktop/CMADR/CMADR/data")
     data_name = "satellite_positions"
     data_path = os.path.join(data_dir, f"{data_name}.json")
     data = load_data(data_path)
@@ -28,7 +28,7 @@ if __name__ == '__main__':
         sat_positions_per_slot_GPS=data['sat_positions_per_slot_GPS']
     )
 
-    output_dir = "neighbors_data_slot_test"
+    output_dir = "/Users/shaoyang/Desktop/CMADR/CMADR/neighbors_data_slot_test"
     os.makedirs(output_dir, exist_ok=True)
     while env.time_slot < env.max_time:
         env.sat_positions = [np.array(p) for p in env.sat_positions_per_slot[env.time_slot]]

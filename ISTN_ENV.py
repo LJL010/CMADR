@@ -70,31 +70,31 @@ class ISTNEnv:
 
     # 1.把真实的数据搞下来
     # 2.用n_nearest.py中的函数替换掉下面的函数
-    # def _build_neighbors(self):
-    #     """Build neighbors based on current node positions."""
-    #     total_agents = self.num_satellites + self.num_ground_stations + 32
-    #     neighbors = {i: set() for i in range(total_agents)}
-    #     # satellite-satellite links
-    #     isl_num = 4
-    #     for i in range(self.num_satellites):
-    #         for j in range(self.num_satellites):
-    #             if len(neighbors[i]) >= isl_num:
-    #                 break
-    #             if i == j:
-    #                 continue
-    #             dist = self.distance_two_satellites(self.sat_positions[i], self.sat_positions[j])
-    #             if self.conn_threshold_min <= dist <= self.conn_threshold_max:
-    #                 neighbors[i].add(j)
-    #
-    #     # satellite-ground links
-    #     for gs in range(self.num_ground_stations):
-    #         gs_pos = self.gs_positions[gs]
-    #         gs_index = self.num_satellites + gs  # 地面站索引
-    #         for sat in range(self.num_satellites):
-    #             dist = self.distance_two_satellites(self.sat_positions[sat], gs_pos)
-    #             if dist <= 700:
-    #                 neighbors[sat].add(gs_index)
-    #                 neighbors[gs_index].add(sat)
+    def _build_neighbors(self):
+        """Build neighbors based on current node positions."""
+        total_agents = self.num_satellites + self.num_ground_stations
+        neighbors = {i: set() for i in range(total_agents)}
+        # satellite-satellite links
+        isl_num = 4
+        for i in range(self.num_satellites):
+            for j in range(self.num_satellites):
+                if len(neighbors[i]) >= isl_num:
+                    break
+                if i == j:
+                    continue
+                dist = self.distance_two_satellites(self.sat_positions[i], self.sat_positions[j])
+                if self.conn_threshold_min <= dist <= self.conn_threshold_max:
+                    neighbors[i].add(j)
+
+        # satellite-ground links
+        for gs in range(self.num_ground_stations):
+            gs_pos = self.gs_positions[gs]
+            gs_index = self.num_satellites + gs  # 地面站索引
+            for sat in range(self.num_satellites):
+                dist = self.distance_two_satellites(self.sat_positions[sat], gs_pos)
+                if dist <= 700:
+                    neighbors[sat].add(gs_index)
+                    neighbors[gs_index].add(sat)
     #
     #     meo_start_index = self.num_satellites + self.num_ground_stations
     #     for leo_idx in range(self.num_satellites):
@@ -113,21 +113,21 @@ class ISTNEnv:
     #             meo_global_idx = meo_start_index + closest_meo_idx
     #             neighbors[leo_idx].add(meo_global_idx)
     #             neighbors[meo_global_idx].add(leo_idx)
-    #     # convert sets to sorted lists
-    #     return {k: sorted(list(v)) for k, v in neighbors.items()}
+        # convert sets to sorted lists
+        return {k: sorted(list(v)) for k, v in neighbors.items()}
 
-    def _build_neighbors(self):
-        """Build neighbors based on current node positions."""
-        filename = f"neighbors_data/neighbors_slot_{self.time_slot}.json"
-        try:
-            # 从文件读取缓存数据
-            with open(filename, 'r') as f:
-                neighbors = json.load(f)
-            # 将列表转换回集合（如果需要）
-            integer_key_dict = {int(k): v for k, v in neighbors.items()}
-            return integer_key_dict
-        except Exception as e:
-            print(f"读取缓存失败 (slot={self.time_slot}): {e}")
+    # def _build_neighbors(self):
+    #     """Build neighbors based on current node positions."""
+    #     filename = f"neighbors_data/neighbors_slot_{self.time_slot}.json"
+    #     try:
+    #         # 从文件读取缓存数据
+    #         with open(filename, 'r') as f:
+    #             neighbors = json.load(f)
+    #         # 将列表转换回集合（如果需要）
+    #         integer_key_dict = {int(k): v for k, v in neighbors.items()}
+    #         return integer_key_dict
+    #     except Exception as e:
+    #         print(f"读取缓存失败 (slot={self.time_slot}): {e}")
 
 
     def distance_two_satellites(self, satellite1, satellite2):
@@ -254,12 +254,10 @@ class ISTNEnv:
             # 确定当前节点 - 修复索引问题
             if idx < self.num_satellites:
                 node = self.satellites[idx]
-                node_type = "SAT"
             else:
                 gs_idx = idx - self.num_satellites  
                 if gs_idx < len(self.ground_stations):
                     node = self.ground_stations[gs_idx]
-                    node_type = f"GS{gs_idx}"
                 else:
                     print(f"Error: Invalid agent index {idx}")
                     rewards[idx] -= 0.1
@@ -275,9 +273,9 @@ class ISTNEnv:
                     print(f"动作无效！！！")
                     rewards[idx] -= 0.1
                     continue
-                print("action", action)
+                #print("action", action)
                 target = current_neighbors[action]
-                print("target", target)
+                #print("target", target)
                 # 确定目标节点
                 if target < self.num_satellites:
                     tgt_node = self.satellites[target]
@@ -303,12 +301,12 @@ class ISTNEnv:
                     # 若目标是地面站且正好为目的地，则交付
                     if (target >= self.num_satellites) and ((target - self.num_satellites) == dst_gs):
                         delivered_packets.append(pkt)
-                        print("成功交付一个数据包到终点！")
+                        #print("成功交付一个数据包到终点！")
                         tgt_node['buffer'].pop()  # 交付出队
                         rewards[idx] += 5.0  # 成功交付大奖励
                     else:
                         # 基础转发奖励
-                        print("虽然没有到终点，但是成功交付给下一个节点了！")
+                        #print("虽然没有到终点，但是成功交付给下一个节点了！")
                         rewards[idx] += 0.1
                         transit_packets.append(pkt)
                             
@@ -324,7 +322,7 @@ class ISTNEnv:
                     
             else:
                 # 没有包可转发，小惩罚
-                print("没有buffer了")
+                #print("没有buffer了")
                 rewards[idx] -= 0.05
 
         # 其余代码保持不变...
