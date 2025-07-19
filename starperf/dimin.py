@@ -62,5 +62,5 @@ def validate_satellite_data(file_path):
 
 if __name__ == "__main__":
     # 使用示例（替换为实际文件路径）
-    file_path = "satellite_positions.json"
+    file_path = "../data/satellite_positions.json"
     validate_satellite_data(file_path)

@@ -16,7 +16,7 @@ def load_data(path: str) -> dict:
 if __name__ == '__main__':
 
     data_dir = Path("/Users/shaoyang/Desktop/CMADR/CMADR/data")
-    data_name = "satellite_positions"
+    data_name = "LEO_01"
     data_path = os.path.join(data_dir, f"{data_name}.json")
     data = load_data(data_path)
     env = ISTNEnv(
