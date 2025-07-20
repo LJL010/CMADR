@@ -6,20 +6,20 @@ import json
 
 class ISTNEnv:
     def __init__(
-        self,
-        num_satellites,
-        num_ground_stations,
-        max_buffer=100,
-        max_energy=1.0,
-        max_time=478,
-        seed=0,
-        sat_positions=None,
-        gs_positions=None,
-        queries=None,
-        sat_positions_per_slot=None,
-        conn_threshold_min = 500,
-        conn_threshold_max=2000,
-        time_slot=0,
+            self,
+            num_satellites,
+            num_ground_stations,
+            max_buffer=100,
+            max_energy=1.0,
+            max_time=478,
+            seed=0,
+            sat_positions=None,
+            gs_positions=None,
+            queries=None,
+            sat_positions_per_slot=None,
+            conn_threshold_min=500,
+            conn_threshold_max=2000,
+            time_slot=0,
     ):
         """ISTN 环境
 
@@ -58,10 +58,28 @@ class ISTNEnv:
 
         # 邻接表在每个time slot动态传入
         self.neighbors = None
-        # 每个agent本地状态维度（自身+邻居+目的地距离）
-        max_possible_neighbors = num_satellites + num_ground_stations - 1
-        self.obs_dim = 3 + 3 * max_possible_neighbors + 1   # 末尾+1为“到目的地的距离”
-        self.action_dim = num_satellites + num_ground_stations
+
+        # === 修正：重新计算obs_dim以匹配新的get_obs函数 ===
+        # 卫星观测维度：自身(3) + 4个邻居(3*4) + 到目的地距离(1) = 16
+        satellite_obs_dim = 3 + 3 * 4 + 1  # 16维
+
+        # 地面站观测维度：自身(1) + 所有卫星信息(2*num_satellites) + 到目的地距离(1)
+        gs_obs_dim = 1 + 2 * num_satellites + 1
+
+        # 取最大值作为统一的观测维度（为了网络兼容性）
+        self.obs_dim = max(satellite_obs_dim, gs_obs_dim)
+
+        print(f"观测维度计算:")
+        print(f"- 卫星观测维度: {satellite_obs_dim}")
+        print(f"- 地面站观测维度: {gs_obs_dim}")
+        print(f"- 统一观测维度: {self.obs_dim}")
+
+        # 动作维度：最大可能的邻居数
+        # 卫星：4个ISL邻居 + 可能的地面站连接
+        # 地面站：可能连接的卫星数
+        max_satellite_actions = 4 + num_ground_stations
+        max_gs_actions = num_satellites
+        self.action_dim = max(max_satellite_actions, max_gs_actions)
 
     # 1.把真实的数据搞下来
     # 2.用n_nearest.py中的函数替换掉下面的函数
@@ -175,58 +193,93 @@ class ISTNEnv:
 
     def get_obs(self, neighbors):
         """
-        每个agent观测：自身 + 所有邻居 + 到目的地的距离（取buffer中第一个包作为“当前处理包”，没有就为0）
+        修正版本：确保所有agent的观测维度完全一致
         """
         obs = []
-        max_possible_neighbors = self.num_satellites + self.num_ground_stations - 1
-        for i in range(self.n_agents):
-            # 节点自身
-            if i < self.num_satellites:
-                own = self.satellites[i]
-            else:
-                own = self.ground_stations[i - self.num_satellites]
-            state = [own['energy'], len(own['buffer']), own['latency']]
-            # 邻居状态
-            current_neighbors = neighbors.get(i, [])
-            for j in range(max_possible_neighbors):
-                if j < len(current_neighbors):
-                    nb = current_neighbors[j]
-                    if nb < self.num_satellites:
-                        nb_node = self.satellites[nb]
-                    else:
-                        nb_node = self.ground_stations[nb - self.num_satellites]
-                    state.extend([nb_node['energy'], len(nb_node['buffer']), nb_node['latency']])
-                else:
-                    state.extend([0.0, 0.0, 0.0])
-            # === 增加到目的地的距离 ===
-            buf = own['buffer']
-            if buf:
-                dst_gs = buf[0]['dst']  # 取第一个包
-                if i < self.num_satellites:
-                    pos = self.sat_positions[i]
-                else:
-                    pos = self.gs_positions[i - self.num_satellites]
-                dst_pos = self.gs_positions[dst_gs]
-                dist = np.linalg.norm(np.array(pos) - np.array(dst_pos))
-            else:
-                dist = 0.0
-            state.append(dist)
-            obs.append(np.array(state, dtype=np.float32))
-        return obs
 
+        for i in range(self.n_agents):
+            if i < self.num_satellites:
+                # === 卫星观测 ===
+                sat = self.satellites[i]
+                state = [sat['energy'], len(sat['buffer']), sat['latency']]
+
+                # 四个邻居的状态（固定4个）
+                current_neighbors = neighbors.get(i, [])
+                for j in range(4):
+                    if j < len(current_neighbors):
+                        nb = current_neighbors[j]
+                        if nb < self.num_satellites:
+                            nb_node = self.satellites[nb]
+                            state.extend([nb_node['energy'], len(nb_node['buffer']), nb_node['latency']])
+                        else:
+                            nb_node = self.ground_stations[nb - self.num_satellites]
+                            state.extend([nb_node['energy'], len(nb_node['buffer']), nb_node['latency']])
+                    else:
+                        state.extend([0.0, 0.0, 0.0])
+
+                # 到目的地的距离
+                buf = sat['buffer']
+                if buf:
+                    dst_gs = buf[0]['dst']
+                    sat_pos = self.sat_positions[i]
+                    dst_pos = self.gs_positions[dst_gs]
+                    dist = np.linalg.norm(np.array(sat_pos) - np.array(dst_pos))
+                else:
+                    dist = 0.0
+                state.append(dist)
+
+            else:
+                # === 地面站观测 ===
+                gs_idx = i - self.num_satellites
+                gs = self.ground_stations[gs_idx]
+                state = [gs['energy']]
+
+                # 所有卫星的状态（无论是否连接）
+                current_neighbors = neighbors.get(i, [])
+                connected_sats = set(nb for nb in current_neighbors if nb < self.num_satellites)
+
+                for sat_idx in range(self.num_satellites):
+                    if sat_idx in connected_sats:
+                        sat_node = self.satellites[sat_idx]
+                        state.extend([sat_node['energy'], len(sat_node['buffer'])])
+                    else:
+                        state.extend([0.0, 0.0])
+
+                # 到目的地的距离
+                buf = gs['buffer']
+                if buf:
+                    dst_gs = buf[0]['dst']
+                    gs_pos = self.gs_positions[gs_idx]
+                    dst_pos = self.gs_positions[dst_gs]
+                    dist = np.linalg.norm(np.array(gs_pos) - np.array(dst_pos))
+                else:
+                    dist = 0.0
+                state.append(dist)
+
+            # === 关键修正：确保所有观测维度完全一致 ===
+            # 填充或截断到统一维度
+            while len(state) < self.obs_dim:
+                state.append(0.0)
+            if len(state) > self.obs_dim:
+                state = state[:self.obs_dim]
+
+            obs.append(np.array(state, dtype=np.float32))
+
+        return obs
 
     def step(self, actions, neighbors):
         """
-        actions: list, 每个agent选一个邻居，将其buffer头部包转发过去（有包才转）
+        修正版本：严格按照论文定义计算奖励和成本
         """
-        cost_energy = np.zeros(self.n_agents)
-        cost_loss = 0
+        # === 按照论文定义初始化成本 ===
+        cost_energy = np.zeros(self.n_agents)  # 每个agent的能耗
+        cost_loss = 0  # 全局丢包数量
         delivered_packets = []
         transit_packets = []
         rewards = np.zeros(self.n_agents)
 
         for idx, action_idx in enumerate(actions):
-            # 确定当前节点 - 修复索引问题
+            # 确定当前节点
             if idx < self.num_satellites:
                 node = self.satellites[idx]
                 current_pos = self.sat_positions[idx]
@@ -237,7 +290,6 @@ class ISTNEnv:
                     current_pos = self.gs_positions[gs_idx]
                 else:
                     print(f"Error: Invalid agent index {idx}")
-                    rewards[idx] -= 0.1
                     continue
 
             if node['buffer']:
@@ -248,19 +300,14 @@ class ISTNEnv:
                 # 检查动作有效性
                 current_neighbors = neighbors.get(idx, [])
                 if not current_neighbors:
-                    # 没有邻居，无法转发
-                    rewards[idx] -= 0.02
                     continue
 
                 # 确保动作索引在有效范围内
                 if action_idx >= len(current_neighbors):
-                    #print(f"动作无效！！！")
                     target_neighbor = current_neighbors[-1]
-                    print(f"Agent {idx}: 动作索引 {action_idx} 超出范围，使用邻居 {target_neighbor}")
-                    rewards[idx] -= 0.2
                 else:
                     target_neighbor = current_neighbors[action_idx]
-                #print("target", target)
+
                 # 确定目标节点
                 if target_neighbor < self.num_satellites:
                     tgt_node = self.satellites[target_neighbor]
@@ -271,36 +318,20 @@ class ISTNEnv:
                         tgt_node = self.ground_stations[tgt_gs_idx]
                         target_pos = self.gs_positions[tgt_gs_idx]
                     else:
-                        print(f"目标节点 {target_neighbor} 不在范围之内")
-                        rewards[idx] -= 0.5
                         continue
 
-                # 计算距离奖励
+                # === 按照论文计算传输速率奖励 ===
+                # 计算包向目的地移动的距离
                 current_to_dst = np.linalg.norm(np.array(current_pos) - np.array(dst_pos))
                 target_to_dst = np.linalg.norm(np.array(target_pos) - np.array(dst_pos))
-                if current_to_dst > 0:
-                    distance_improvement = (current_to_dst - target_to_dst) / current_to_dst
-                    if distance_improvement > 0:
-                        distance_reward = distance_improvement * 4.0 * (1 + distance_improvement)
-                    else:
-                        distance_reward = distance_improvement * 1.0
-                else:
-                    distance_reward = 0
 
-                # === 改进2：负载均衡奖励 ===
-                # 鼓励向buffer较空的节点转发
-                current_buffer_ratio = len(node['buffer']) / self.max_buffer
-                target_buffer_ratio = len(tgt_node['buffer']) / self.max_buffer
-                load_balance_reward = max(0, (current_buffer_ratio - target_buffer_ratio) * 0.5)
-
-                # === 改进3：网络连通性奖励 ===
-                # 如果目标节点有更多邻居，给额外奖励（提高网络鲁棒性）
-                target_neighbor_count = len(neighbors.get(target_neighbor, []))
-                connectivity_reward = min(target_neighbor_count * 0.05, 0.3)
+                # 传输速率 = 距离改善 / 时间单位 (假设每个时隙为1个时间单位)
+                distance_improvement = max(0, current_to_dst - target_to_dst)
+                transmission_rate = distance_improvement  # 论文中的平均传输速率
 
                 # 缓冲是否满
                 if len(tgt_node['buffer']) < self.max_buffer:
-                    # 路径+1跳
+                    # 成功转发
                     pkt = node['buffer'].pop(0)
                     pkt['hop'] += 1
                     pkt['path'].append(target_neighbor)
@@ -309,136 +340,65 @@ class ISTNEnv:
                     # 若目标是地面站且正好为目的地，则交付
                     if (target_neighbor >= self.num_satellites) and ((target_neighbor - self.num_satellites) == dst_gs):
                         delivered_packets.append(pkt)
-                        #print("成功交付一个数据包到终点！")
                         tgt_node['buffer'].pop()  # 交付出队
-                        # 成功交付奖励
-                        hop_bonus = max(0, 20 - pkt['hop'])  # 增加hop奖励上限
-                        time_bonus = max(0, 8 - (self.time_slot - pkt['start_time']) * 0.1)
-                        urgency_bonus = min((self.time_slot - pkt['start_time']) * 0.2, 5.0)
-                        delivery_reward = 20.0 + hop_bonus + time_bonus + urgency_bonus
-                        rewards[idx] += delivery_reward
+                        # 成功交付额外奖励
+                        rewards[idx] += transmission_rate + 10.0  # 基础传输速率 + 交付奖励
                     else:
                         # 转发奖励
-                        base_forward_reward = 1.0
-                        forward_reward = (base_forward_reward + distance_reward +
-                                          load_balance_reward + connectivity_reward)
-
-                        if target_neighbor >= self.num_satellites:
-                            forward_reward += 0.6
-
-                        # === 改进6：路径多样性奖励 ===
-                        # 如果选择了之前没走过的路径，额外奖励
-                        if target_neighbor not in pkt.get('path', []):
-                            forward_reward += 0.3
-                        rewards[idx] += forward_reward
+                        rewards[idx] += transmission_rate
                         transit_packets.append(pkt)
 
-                    # 能耗
+                    # === 按照论文计算能耗成本 ===
                     node['energy'] -= 0.01
                     cost_energy[idx] += 0.01
                 else:
-                    # === 改进7：更智能的丢包惩罚 ===
+                    # === 按照论文计算丢包成本 ===
                     node['buffer'].pop(0)
-                    cost_loss += 1
-                    #print("由于节点的缓存不够造成丢包！")
-                    # 基础丢包惩罚
-                    drop_penalty = 2.0
-                    # 跳数惩罚
-                    if pkt['hop'] > 5:
-                        drop_penalty += pkt['hop'] * 0.3
-                    # 时间惩罚：包在网络中时间越长，丢包惩罚越重
-                    time_in_network = self.time_slot - pkt['start_time']
-                    if time_in_network > 10:
-                        drop_penalty += (time_in_network - 10) * 0.1
-
-                    rewards[idx] -= drop_penalty
+                    cost_loss += 1  # 论文中的丢包计数
+                    # 丢包惩罚
+                    rewards[idx] -= 5.0
 
             else:
-                # === 改进8：动态的空闲惩罚 ===
-                # 根据网络负载调整空闲惩罚
-                total_packets_in_network = sum(len(self.satellites[i]['buffer'])
-                                               for i in range(self.num_satellites))
-                total_packets_in_network += sum(len(self.ground_stations[i]['buffer'])
-                                                for i in range(self.num_ground_stations))
+                # 空闲时轻微惩罚
+                rewards[idx] -= 0.01
 
-                if total_packets_in_network > 0:
-                    # 有包在网络中时，空闲惩罚更重
-                    rewards[idx] -= 0.05
-                else:
-                    # 网络空闲时，惩罚很轻
-                    rewards[idx] -= 0.01
-
-        # 其余代码保持不变...
-        # 添加全局奖励成分，但不要完全覆盖个体奖励
-        # === 改进9：更精细的全局奖励 ===
-        if delivered_packets:
-            # 基础全局奖励
-            global_delivery_bonus = len(delivered_packets) * 2.0
-
-            # 效率奖励（平均跳数）
-            avg_hops = np.mean([pkt['hop'] for pkt in delivered_packets])
-            efficiency_bonus = max(0, (12 - avg_hops) * 0.4) if avg_hops > 0 else 0
-
-            # === 新增：时间效率奖励 ===
-            avg_delay = np.mean([self.time_slot - pkt['start_time'] for pkt in delivered_packets])
-            time_efficiency_bonus = max(0, (15 - avg_delay) * 0.2) if avg_delay > 0 else 0
-
-            total_global_bonus = global_delivery_bonus + efficiency_bonus + time_efficiency_bonus
-            rewards += total_global_bonus / self.n_agents
-
-        # === 改进10：网络健康度奖励/惩罚 ===
-        # 计算网络整体缓冲区利用率
-        total_buffer_usage = sum(len(self.satellites[i]['buffer']) for i in range(self.num_satellites))
-        total_buffer_usage += sum(len(self.ground_stations[i]['buffer']) for i in range(self.num_ground_stations))
-        total_capacity = self.max_buffer * self.n_agents
-
-        buffer_utilization = total_buffer_usage / total_capacity
-
-        if buffer_utilization > 0.9:
-            # 网络过载惩罚
-            congestion_penalty = (buffer_utilization - 0.9) * 10.0
-            rewards -= congestion_penalty / self.n_agents
-        elif buffer_utilization < 0.1 and delivered_packets:
-            # 网络利用率低但有交付，轻微奖励（表示网络高效）
-            efficiency_reward = (0.1 - buffer_utilization) * 2.0
-            rewards += efficiency_reward / self.n_agents
+        # === 论文中的全局奖励成分 ===
+        # 计算所有包的平均传输速率
+        if delivered_packets or transit_packets:
+            # 全局传输效率奖励
+            global_efficiency = len(delivered_packets) * 2.0
+            rewards += global_efficiency / self.n_agents
 
         self.time_slot += 1
-        # release queries scheduled for the new time slot
         self._release_queries()
 
-        # update satellite positions for next slot if provided
+        # 更新卫星位置
         if self.sat_positions_per_slot is not None:
             slot_idx = min(self.time_slot, len(self.sat_positions_per_slot) - 1)
             self.sat_positions = [np.array(p) for p in self.sat_positions_per_slot[slot_idx]]
 
         done = self.time_slot >= self.max_time
 
-        # 每隔3步补充新的包（模拟有流量），若提供 queries 则不再随机生成
-        # if not self.queries and self.time_slot % 3 == 0:
-        #     for _ in range(self.random.randint(1, self.num_ground_stations)):
-        #         gs_idx = self.random.randint(0, self.num_ground_stations - 1)
-        #         gs = self.ground_stations[gs_idx]
-        #         if len(gs['buffer']) < self.max_buffer:
-        #             pkt = self._create_packet()
-        #             gs['buffer'].append(pkt)
-
         obs = self.get_obs(neighbors)
+
+        # === 按照论文定义的信息统计 ===
         info = {
             'delivered_packets': len(delivered_packets),
             'packets_in_transit': len(transit_packets),
             'total_cost_loss': cost_loss,
             'delays': [120 * (self.time_slot - pkt['start_time']) for pkt in delivered_packets],
             'avg_hops': np.mean([pkt['hop'] for pkt in delivered_packets]) if delivered_packets else 0,
-            'buffer_utilization': buffer_utilization,
             'avg_delay': np.mean(
                 [self.time_slot - pkt['start_time'] for pkt in delivered_packets]) if delivered_packets else 0,
         }
-        costs = {'energy': cost_energy, 'loss': cost_loss}
+
+        # === 按照论文定义返回成本 ===
+        costs = {
+            'energy': cost_energy,  # 每个agent的能耗成本
+            'loss': cost_loss  # 全局丢包成本
+        }
 
         return obs, rewards, done, costs, info
-
-
 
 
     def reset(self):

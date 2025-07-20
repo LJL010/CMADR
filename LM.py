@@ -1,25 +1,28 @@
-# todo: 加入loss lagrange乘子对loss的贡献再训练
-
-# todo: 加入loss lagrange乘子对loss的贡献再训练
+# LM.py - 修正版本：严格按照论文实现拉格朗日方法
 
 import torch
 import torch.nn.functional as F
 import numpy as np
+import os
+import json
+from datetime import datetime
 
 
 class LagrangeMultiplier:
-    """ 单约束拉格朗日乘子 """
+    """单约束拉格朗日乘子"""
 
     def __init__(self, init_value=1.0, lr=0.01, min_val=1e-3, max_val=100.0, device='cpu'):
         self.value = torch.tensor([init_value], dtype=torch.float32, requires_grad=True, device=device)
         self.lr = lr
         self.min_val = min_val
         self.max_val = max_val
+        self.device = device
 
     def update(self, cost_violation):
-        # cost_violation: torch scalar，>0 表示违反，<0表示未违反
+        """根据约束违反程度更新拉格朗日乘子"""
         if not isinstance(cost_violation, torch.Tensor):
-            cost_violation = torch.tensor(cost_violation, dtype=torch.float32, device=self.value.device)
+            cost_violation = torch.tensor(cost_violation, dtype=torch.float32, device=self.device)
+
         grad = cost_violation.detach()
         with torch.no_grad():
             self.value += self.lr * grad
@@ -30,221 +33,213 @@ class LagrangeMultiplier:
         return self.value
 
 
-# === 训练主循环 ===
-import os
-import json
-from datetime import datetime
-
 def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device='cpu', batch_size=50):
     """
-    内存优化版本的分批次处理episode数据的训练主循环
+    按照论文CMADR算法实现的训练函数
     """
     n_agents = mac.n_agents
     cost_limits = cost_limits or {'energy': 0.5, 'loss': 5}
 
     # 创建日志目录
     log_dir = "training_logs"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    
-    # 创建本次训练的时间戳目录
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     current_log_dir = os.path.join(log_dir, f"training_{timestamp}")
-    if not os.path.exists(current_log_dir):
-        os.makedirs(current_log_dir)
+    os.makedirs(current_log_dir, exist_ok=True)
 
-    # 初始化拉格朗日乘子
-    lagrange_energy = LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
-    lagrange_loss = LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
+    # === 按照论文初始化拉格朗日乘子 ===
+    # λC: 全局丢包率约束 (公式12)
+    lagrange_global_loss = LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
+
+    # λj: 地面站能耗约束 (公式13)
+    lagrange_gs_energy = [LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
+                          for _ in range(env.num_ground_stations)]
+
+    # λi: 卫星能耗约束 (公式14)
+    lagrange_sat_energy = [LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
+                           for _ in range(env.num_satellites)]
 
     for ep in range(num_episodes):
-        # 为每个episode创建单独的日志文件
         episode_log_file = os.path.join(current_log_dir, f"episode_{ep:04d}.log")
-        
+
         obs = env.reset()
         done = False
         ep_reward = 0
-        ep_energy_cost = 0
-        ep_loss_cost = 0
-        step_count = 0
+        ep_global_cost = 0  # 全局丢包成本
+        ep_gs_costs = [0] * env.num_ground_stations  # 地面站能耗成本
+        ep_sat_costs = [0] * env.num_satellites  # 卫星能耗成本
 
-        # 使用列表存储必要的数据，减少内存占用
+        # 存储episode数据
         obs_list = []
         actions_list = []
         rewards_list = []
-        cost_energy_list = []
-        cost_loss_list = []
         global_obs_list = []
+        global_cost_list = []  # 全局丢包成本
+        gs_cost_lists = [[] for _ in range(env.num_ground_stations)]  # 地面站能耗成本
+        sat_cost_lists = [[] for _ in range(env.num_satellites)]  # 卫星能耗成本
 
-        # 调试信息：在第一个episode打印数据格式
-        debug_first_step = (ep == 0)
-
-        time_count = 0
-        
-        # 写入episode开始信息到日志文件
         with open(episode_log_file, 'w', encoding='utf-8') as f:
             f.write(f"=== Episode {ep} 开始 ===\n")
-            f.write(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Episode参数: reward=0, energy_cost=0, loss_cost=0\n")
-            f.write("-" * 50 + "\n")
-        
-        # 1. 运行当前episode，只收集必要数据
+
+        step_count = 0
         while not done:
             neighbors = env._build_neighbors()
             actions = mac.select_actions(obs, neighbors)
             next_obs, rewards, done, costs, info = env.step(actions, neighbors)
 
-            # 处理cost数据，确保是标量值
-            # 调试信息：在第一步打印cost数据格式
-            if debug_first_step and step_count == 0:
-                debug_info = (
-                    f"Debug - costs['energy'] type: {type(costs['energy'])}, "
-                    f"shape: {getattr(costs['energy'], 'shape', 'scalar')}\n"
-                    f"Debug - costs['loss'] type: {type(costs['loss'])}, "
-                    f"shape: {getattr(costs['loss'], 'shape', 'scalar')}\n"
-                )
-                print(debug_info)  # 调试信息仍然打印到终端
-                
-                # 同时写入日志文件
-                with open(episode_log_file, 'a', encoding='utf-8') as f:
-                    f.write(debug_info)
+            # === 按照论文定义收集成本数据 ===
+            # 全局丢包成本 (对应公式12的JC(π))
+            global_cost = costs['loss'] if np.isscalar(costs['loss']) else np.sum(costs['loss'])
 
-            # 确保cost是标量值（对所有智能体求和）
-            current_energy_cost = np.sum(costs['energy']) if hasattr(costs['energy'], '__len__') else costs['energy']
-            current_loss_cost = costs['loss'] if np.isscalar(costs['loss']) else np.sum(costs['loss'])
+            # 地面站能耗成本 (对应公式13的Jj(π))
+            gs_costs = []
+            for j in range(env.num_ground_stations):
+                if j < len(costs['energy']) - env.num_satellites:
+                    gs_cost = costs['energy'][env.num_satellites + j] if hasattr(costs['energy'], '__len__') else 0
+                else:
+                    gs_cost = 0
+                gs_costs.append(gs_cost)
 
-            # 只保存必要的数据
+            # 卫星能耗成本 (对应公式14的Ji(π))
+            sat_costs = []
+            for i in range(env.num_satellites):
+                if i < len(costs['energy']) if hasattr(costs['energy'], '__len__') else 1:
+                    sat_cost = costs['energy'][i] if hasattr(costs['energy'], '__len__') else costs['energy']
+                else:
+                    sat_cost = 0
+                sat_costs.append(sat_cost)
+
+            # 存储数据
             global_obs = np.concatenate(obs, axis=0)
             obs_list.append(obs.copy())
             actions_list.append(actions.copy())
             rewards_list.append(rewards.copy())
-            cost_energy_list.append(current_energy_cost)
-            cost_loss_list.append(current_loss_cost)
             global_obs_list.append(global_obs.copy())
+            global_cost_list.append(global_cost)
+
+            for j in range(env.num_ground_stations):
+                gs_cost_lists[j].append(gs_costs[j])
+            for i in range(env.num_satellites):
+                sat_cost_lists[i].append(sat_costs[i])
 
             obs = next_obs
             step_count += 1
             ep_reward += np.sum(rewards)
-            ep_energy_cost += current_energy_cost
-            ep_loss_cost += current_loss_cost
-            
-            # 将原来的打印信息写入文件
-            log_message = f"第{ep}轮,第{time_count}功传递info:{info}\n"
+            ep_global_cost += global_cost
+
+            for j in range(env.num_ground_stations):
+                ep_gs_costs[j] += gs_costs[j]
+            for i in range(env.num_satellites):
+                ep_sat_costs[i] += sat_costs[i]
+
+            # 日志记录
+            log_message = f"Step {step_count}: global_cost={global_cost:.3f}, info={info}\n"
             with open(episode_log_file, 'a', encoding='utf-8') as f:
                 f.write(log_message)
-                
-            time_count = time_count + 1
-
-        # 写入episode结束信息
-        with open(episode_log_file, 'a', encoding='utf-8') as f:
-            f.write("-" * 50 + "\n")
-            f.write(f"=== Episode {ep} 结束 ===\n")
-            f.write(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"总步数: {time_count}\n")
-            f.write(f"总奖励: {ep_reward:.2f}\n")
-            f.write(f"总能量消耗: {ep_energy_cost:.2f}\n")
-            f.write(f"总丢包损失: {ep_loss_cost:.2f}\n")
-            f.write("=" * 50 + "\n")
 
         T = len(obs_list)
         if T == 0:
             continue
 
-        # 2. 流式计算cost_to_go以节省内存
+        # === 按照论文计算cost-to-go (公式对应) ===
         def compute_cost_to_go(cost_list, gamma):
-            """流式计算cost_to_go，避免存储大张量"""
             cost_to_go = []
             running = 0.0
             for t in reversed(range(T)):
-                # 只有当不是最后一步时才应用折扣
                 is_done = (t == T - 1)
                 running = cost_list[t] + gamma * running * (0.0 if is_done else 1.0)
                 cost_to_go.insert(0, running)
             return cost_to_go
 
-        # 计算cost_to_go（使用Python数值，避免张量开销）
-        global_cost_energy_to_go = compute_cost_to_go(cost_energy_list, gamma)
-        global_cost_loss_to_go = compute_cost_to_go(cost_loss_list, gamma)
+        # 计算各种cost-to-go
+        global_cost_to_go = compute_cost_to_go(global_cost_list, gamma)
+        gs_cost_to_gos = [compute_cost_to_go(gs_cost_lists[j], gamma) for j in range(env.num_ground_stations)]
+        sat_cost_to_gos = [compute_cost_to_go(sat_cost_lists[i], gamma) for i in range(env.num_satellites)]
 
-        # 3. 分批次处理，及时释放内存
+        # === 分批处理训练 ===
         for start in range(0, T, batch_size):
             end = min(start + batch_size, T)
             B = end - start
 
-            # 创建当前批次的张量（先转换为numpy数组，再转换为tensor以提高性能）
-            obs_batch = torch.from_numpy(
-                np.array(obs_list[start:end], dtype=np.float32)
-            ).to(device)
-            act_batch = torch.from_numpy(
-                np.array(actions_list[start:end], dtype=np.int64)
-            ).to(device)
-            rew_batch = torch.from_numpy(
-                np.array(rewards_list[start:end], dtype=np.float32)
-            ).to(device)
-            global_obs_batch = torch.from_numpy(
-                np.array(global_obs_list[start:end], dtype=np.float32)
-            ).to(device)
+            # 准备批次数据
+            obs_batch = torch.from_numpy(np.array(obs_list[start:end], dtype=np.float32)).to(device)
+            act_batch = torch.from_numpy(np.array(actions_list[start:end], dtype=np.int64)).to(device)
+            rew_batch = torch.from_numpy(np.array(rewards_list[start:end], dtype=np.float32)).to(device)
+            global_obs_batch = torch.from_numpy(np.array(global_obs_list[start:end], dtype=np.float32)).to(device)
 
-            # 创建done标记（最后一步为done）
             done_batch = torch.zeros(B, dtype=torch.float32, device=device)
             if end == T:
                 done_batch[-1] = 1.0
 
-            # cost_to_go张量（现在应该是标量值的列表）
-            batch_energy_to_go = torch.from_numpy(
-                np.array(global_cost_energy_to_go[start:end], dtype=np.float32)
-            ).to(device)
-            batch_loss_to_go = torch.from_numpy(
-                np.array(global_cost_loss_to_go[start:end], dtype=np.float32)
-            ).to(device)
+            # cost-to-go张量
+            batch_global_cost_to_go = torch.from_numpy(np.array(global_cost_to_go[start:end], dtype=np.float32)).to(
+                device)
 
-            # 计算全局值函数
+            # === 按照论文公式训练global critics ===
             with torch.no_grad():
-                global_values = mac.global_critic(global_obs_batch).squeeze(-1)
+                global_reward_values = mac.global_reward_critic(global_obs_batch).squeeze(-1)
+                global_cost_values = mac.global_cost_critic(global_obs_batch).squeeze(-1)
 
-            # 4. 智能体训练循环
+            # === 训练每个agent (按照论文公式21-22) ===
             for agent_idx in range(n_agents):
                 agent = mac.actors[agent_idx]
                 critic = mac.critics[agent_idx]
                 optimizer_a = mac.optim_actors[agent_idx]
                 optimizer_c = mac.optim_critics[agent_idx]
 
-                # 提取当前智能体的数据
+                # 提取agent数据
                 obs_agent = obs_batch[:, agent_idx, :]
                 act_agent = act_batch[:, agent_idx]
                 rew_agent = rew_batch[:, agent_idx]
 
-                # 计算值函数
+                # 计算值函数和优势
                 values = critic(obs_agent).squeeze(-1)
 
-                # 计算下一步值函数
                 with torch.no_grad():
                     if B > 1:
                         next_val = torch.cat([values[1:], values[-1:]])
                     else:
                         next_val = values
 
-                # TD目标和优势
+                # TD目标和优势 (基于reward)
                 td_target = rew_agent + gamma * next_val * (1 - done_batch)
 
                 if B > 1:
                     advantage = td_target[:-1] - values[:-1]
-                    # Actor损失 - 修复logits处理
+
+                    # === Actor损失 (按照论文公式21) ===
                     logits = agent(obs_agent[:-1])
 
-                    # 检查logits是否已经是概率分布
                     if torch.all(logits >= 0) and torch.allclose(logits.sum(dim=-1),
                                                                  torch.ones(logits.shape[0], device=device), atol=1e-6):
-                        # 已经是概率分布
                         probs = logits
                     else:
-                        # 是未归一化的logits，需要softmax
                         probs = F.softmax(logits, dim=-1)
 
-                    # 计算log概率
                     selected_probs = probs.gather(1, act_agent[:-1].unsqueeze(-1)).squeeze(-1)
                     logp = torch.log(selected_probs + 1e-8)
-                    actor_loss = -torch.mean(logp * advantage.detach())
+
+                    # 计算拉格朗日损失项
+                    lagrange_loss = 0.0
+
+                    # 全局丢包约束项
+                    lagrange_loss += lagrange_global_loss() * batch_global_cost_to_go[:-1].mean()
+
+                    # 个体能耗约束项
+                    if agent_idx < env.num_satellites:
+                        # 卫星约束
+                        sat_cost_to_go = torch.from_numpy(
+                            np.array(sat_cost_to_gos[agent_idx][start:end - 1], dtype=np.float32)).to(device)
+                        lagrange_loss += lagrange_sat_energy[agent_idx]() * sat_cost_to_go.mean()
+                    else:
+                        # 地面站约束
+                        gs_idx = agent_idx - env.num_satellites
+                        if gs_idx < env.num_ground_stations:
+                            gs_cost_to_go = torch.from_numpy(
+                                np.array(gs_cost_to_gos[gs_idx][start:end - 1], dtype=np.float32)).to(device)
+                            lagrange_loss += lagrange_gs_energy[gs_idx]() * gs_cost_to_go.mean()
+
+                    # Actor总损失 (论文公式21)
+                    actor_loss = -torch.mean(logp * advantage.detach()) + lagrange_loss
 
                     # Critic损失
                     critic_loss = F.mse_loss(values[:-1], td_target[:-1].detach())
@@ -252,7 +247,7 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
                     actor_loss = torch.tensor(0.0, device=device)
                     critic_loss = F.mse_loss(values, td_target.detach())
 
-                # 立即优化，避免累积梯度
+                # 优化
                 optimizer_a.zero_grad()
                 actor_loss.backward()
                 optimizer_a.step()
@@ -261,228 +256,67 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
                 critic_loss.backward()
                 optimizer_c.step()
 
-                # 清理中间变量
-                del obs_agent, act_agent, rew_agent, values, td_target
-                if B > 1:
-                    del advantage, logits, probs, selected_probs, logp
+            # === 训练global critics (按照论文公式28-30) ===
+            # Global reward critic (预测累积奖励)
+            global_reward_values = mac.global_reward_critic(global_obs_batch).squeeze(-1)
+            reward_target = torch.from_numpy(
+                np.array([np.sum(rewards_list[t]) for t in range(start, end)], dtype=np.float32)).to(device)
 
-            # 5. 全局网络训练
-            global_values = mac.global_critic(global_obs_batch).squeeze(-1)
+            global_reward_loss = F.mse_loss(global_reward_values, reward_target.detach())
 
-            if B > 1:
-                global_critic_loss = F.mse_loss(
-                    global_values[:-1], batch_energy_to_go[:-1].detach()
-                )
-                cost_violation_energy = batch_energy_to_go[:-1].mean() - cost_limits['energy']
-                cost_violation_loss = batch_loss_to_go[:-1].mean() - cost_limits['loss']
-            else:
-                global_critic_loss = F.mse_loss(
-                    global_values, batch_energy_to_go.detach()
-                )
-                cost_violation_energy = batch_energy_to_go.mean() - cost_limits['energy']
-                cost_violation_loss = batch_loss_to_go.mean() - cost_limits['loss']
+            # Global cost critic (预测累积丢包成本)
+            global_cost_values = mac.global_cost_critic(global_obs_batch).squeeze(-1)
+            global_cost_loss = F.mse_loss(global_cost_values, batch_global_cost_to_go.detach())
 
-            # 拉格朗日约束项
-            lagrange_energy_term = lagrange_energy() * cost_violation_energy
-            lagrange_loss_term = lagrange_loss() * cost_violation_loss
+            # 优化global critics
+            mac.optim_global_reward_critic.zero_grad()
+            global_reward_loss.backward()
+            mac.optim_global_reward_critic.step()
 
-            # 全局网络优化
-            mac.optim_global_critic.zero_grad()
-            total_global_loss = global_critic_loss + lagrange_energy_term + lagrange_loss_term
-            total_global_loss.backward()
-            mac.optim_global_critic.step()
+            mac.optim_global_cost_critic.zero_grad()
+            global_cost_loss.backward()
+            mac.optim_global_cost_critic.step()
 
-            # 及时清理批次数据
-            del (obs_batch, act_batch, rew_batch, global_obs_batch, done_batch,
-                 batch_energy_to_go, batch_loss_to_go, global_values,
-                 global_critic_loss, total_global_loss)
+        # === 更新拉格朗日乘子 (按照论文公式23-27) ===
+        # 全局丢包率约束违反程度
+        avg_global_cost = sum(global_cost_to_go) / T
+        global_violation = avg_global_cost - cost_limits['loss']
+        lagrange_global_loss.update(torch.tensor(global_violation, dtype=torch.float32, device=device))
 
-            # 清理GPU缓存（如果使用GPU）
-            if device != 'cpu':
-                torch.cuda.empty_cache()
+        # 地面站能耗约束违反程度
+        for j in range(env.num_ground_stations):
+            avg_gs_cost = sum(gs_cost_to_gos[j]) / T
+            gs_violation = avg_gs_cost - cost_limits['energy']
+            lagrange_gs_energy[j].update(torch.tensor(gs_violation, dtype=torch.float32, device=device))
 
-        # 6. 更新拉格朗日乘子（使用episode平均值，确保传入tensor）
-        avg_energy_cost = sum(global_cost_energy_to_go) / T
-        avg_loss_cost = sum(global_cost_loss_to_go) / T
+        # 卫星能耗约束违反程度
+        for i in range(env.num_satellites):
+            avg_sat_cost = sum(sat_cost_to_gos[i]) / T
+            sat_violation = avg_sat_cost - cost_limits['energy']
+            lagrange_sat_energy[i].update(torch.tensor(sat_violation, dtype=torch.float32, device=device))
 
-        total_energy_violation = avg_energy_cost - cost_limits['energy']
-        total_loss_violation = avg_loss_cost - cost_limits['loss']
+        # 清理内存
+        del (obs_list, actions_list, rewards_list, global_obs_list, global_cost_list,
+             gs_cost_lists, sat_cost_lists, global_cost_to_go, gs_cost_to_gos, sat_cost_to_gos)
 
-        # 转换为tensor再传入lagrange multiplier
-        total_energy_violation_tensor = torch.tensor(total_energy_violation, dtype=torch.float32, device=device)
-        total_loss_violation_tensor = torch.tensor(total_loss_violation, dtype=torch.float32, device=device)
-
-        lagrange_energy.update(total_energy_violation_tensor)
-        lagrange_loss.update(total_loss_violation_tensor)
-
-        # 清理episode数据
-        del (obs_list, actions_list, rewards_list, cost_energy_list,
-             cost_loss_list, global_obs_list, global_cost_energy_to_go,
-             global_cost_loss_to_go)
-
-        # 打印训练日志（只显示关键信息）
+        # 记录训练日志
         if ep % 1 == 0:
             summary_msg = (
-                f"\nEpisode {ep}: reward={ep_reward:.2f} energy={ep_energy_cost:.2f} "
-                f"loss={ep_loss_cost:.2f} λ_e={lagrange_energy().item():.2f} "
-                f"λ_l={lagrange_loss().item():.2f} steps={T}"
+                f"\nEpisode {ep}: reward={ep_reward:.2f} global_cost={ep_global_cost:.2f} "
+                f"λ_global={lagrange_global_loss().item():.2f} steps={T}"
             )
             print(summary_msg)
-            
-            # 同时写入总结日志文件
+
             summary_log_file = os.path.join(current_log_dir, "training_summary.log")
             with open(summary_log_file, 'a', encoding='utf-8') as f:
                 f.write(summary_msg + "\n")
 
-    # 训练结束，写入总结信息
+    # 最终总结
     final_summary_file = os.path.join(current_log_dir, "final_summary.log")
     with open(final_summary_file, 'w', encoding='utf-8') as f:
         f.write(f"训练完成!\n")
         f.write(f"总Episodes: {num_episodes}\n")
-        f.write(f"最终拉格朗日乘子 - Energy: {lagrange_energy().item():.4f}\n")
-        f.write(f"最终拉格朗日乘子 - Loss: {lagrange_loss().item():.4f}\n")
-        f.write(f"日志保存位置: {current_log_dir}\n")
+        f.write(f"最终拉格朗日乘子 - Global Loss: {lagrange_global_loss().item():.4f}\n")
         f.write(f"完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    
+
     print(f"\n训练完成! 所有日志已保存到: {current_log_dir}")
-    print(f"- 每个episode的详细日志: episode_XXXX.log")
-    print(f"- 训练摘要: training_summary.log") 
-    print(f"- 最终总结: final_summary.log")
-
-
-# def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device='cpu'):
-#     """
-#     env: ISTNEnv
-#     mac: MultiAgentSystem
-#     cost_limits: dict, e.g. {'energy': 0.5, 'loss': 5}
-#     """
-#     n_agents = mac.n_agents
-#     cost_limits = cost_limits or {'energy': 0.5, 'loss': 5}
-#
-#     # 1. 初始化拉格朗日乘子
-#     lagrange_energy = LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
-#     lagrange_loss = LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
-#
-#     for ep in range(num_episodes):
-#         obs = env.reset()
-#         episode_transitions = []
-#         done = False
-#         ep_reward = 0
-#         ep_energy_cost = 0
-#         ep_loss_cost = 0
-#         step_count = 0
-#         while not done:
-#             # 动态生成当前时隙的拓扑
-#             neighbors = env._build_neighbors()
-#             actions = mac.select_actions(obs,neighbors)
-#             next_obs, rewards, done, costs, info = env.step(actions, neighbors)
-#
-#             # 存储一条transition
-#             global_obs = np.concatenate(obs, axis=0) # shape = [n_agents * obs_dim]
-#             transition = {
-#                 'obs': obs,
-#                 'global_obs': global_obs,  # 新增
-#                 'actions': actions,
-#                 'rewards': rewards,
-#                 'cost_energy': costs['energy'],
-#                 'cost_loss': costs['loss'],
-#                 'next_obs': next_obs,
-#                 'done': done
-#             }
-#             episode_transitions.append(transition)
-#             obs = next_obs
-#             step_count += 1
-#             ep_reward += np.sum(rewards)
-#             ep_energy_cost += np.sum(costs['energy'])
-#             ep_loss_cost += costs['loss']
-#
-#         # 2. 转换采样数据为批量
-#         obs_batch = torch.tensor(np.array([tr['obs'] for tr in episode_transitions]), dtype=torch.float32, device=device)  # [T, n_agents, obs_dim]
-#         act_batch = torch.tensor(np.array([tr['actions'] for tr in episode_transitions]), dtype=torch.long, device=device) # [T, n_agents]
-#         rew_batch = torch.tensor(np.array([tr['rewards'] for tr in episode_transitions]), dtype=torch.float32, device=device) # [T, n_agents]
-#         cost_energy_batch = torch.tensor(np.array([tr['cost_energy'] for tr in episode_transitions]), dtype=torch.float32, device=device)
-#         cost_loss_batch = torch.tensor(np.array([tr['cost_loss'] for tr in episode_transitions]), dtype=torch.float32, device=device)
-#         next_obs_batch = torch.tensor(np.array([tr['next_obs'] for tr in episode_transitions]), dtype=torch.float32, device=device)
-#         done_batch = torch.tensor(np.array([tr['done'] for tr in episode_transitions]), dtype=torch.float32, device=device)
-#         global_obs_batch = torch.tensor(np.array([tr['global_obs'] for tr in episode_transitions]), dtype=torch.float32, device=device) # [T, n_agents * obs_dim]
-#
-#         # 3. 计算advantage/target（简单时序差分或GAE均可，这里用TD）
-#         # 对每个agent分别更新
-#         for agent_idx in range(n_agents):
-#             agent = mac.actors[agent_idx]
-#             critic = mac.critics[agent_idx]
-#             optimizer_a = mac.optim_actors[agent_idx]
-#             optimizer_c = mac.optim_critics[agent_idx]
-#             obs_agent = obs_batch[:, agent_idx, :]       # [T, obs_dim]
-#             act_agent = act_batch[:, agent_idx]          # [T]
-#             rew_agent = rew_batch[:, agent_idx]          # [T]
-#             cost_e_agent = cost_energy_batch[:, agent_idx] # [T]
-#
-#             # 计算值函数和目标 - 基于reward而不是cost
-#             values = critic(obs_agent).squeeze(-1)       # [T]
-#             # bootstrapped TD target - 使用reward
-#             td_target = rew_agent + gamma * torch.cat([values[1:], values[-1:]]) * (1-done_batch)
-#             advantage = td_target[:-1] - values[:-1]
-#
-#             # Actor loss: 最大化reward (策略梯度)
-#             logits = agent(obs_agent[:-1])
-#             logp = torch.log(logits.gather(1, act_agent[:-1].unsqueeze(-1)).squeeze(-1) + 1e-8)
-#             actor_loss = -torch.mean(logp * advantage.detach())  # 现在使用基于reward的advantage
-#
-#             # Critic loss: 预测reward的价值
-#             critic_loss = F.mse_loss(values[:-1], td_target[:-1].detach())
-#
-#         # 全局cost处理（约束项）
-#         global_values = mac.global_critic(global_obs_batch).squeeze(-1) # [T]
-#
-#         global_cost_enegy = cost_energy_batch.mean(dim=1)  # [T]
-#         global_cost_enegy_to_go = []
-#         running = 0
-#         for t in reversed(range(len(global_cost_enegy))):
-#             running = global_cost_enegy[t] + gamma * running * (1 - done_batch[t])
-#             global_cost_enegy_to_go.insert(0, running)
-#         global_cost_enegy_to_go = torch.tensor(global_cost_enegy_to_go, dtype=torch.float32, device=device)
-#
-#         global_cost_loss = cost_loss_batch  # [T]
-#         global_cost_loss_to_go = []
-#         running = 0
-#         for t in reversed(range(len(global_cost_loss))):
-#             running = global_cost_loss[t] + gamma * running * (1 - done_batch[t])
-#             global_cost_loss_to_go.insert(0, running)
-#         global_cost_loss_to_go = torch.tensor(global_cost_loss_to_go, dtype=torch.float32, device=device)
-#
-#
-#
-#         # 全局critic损失：预测cost
-#         global_critic_loss = F.mse_loss(global_values[:-1], global_cost_enegy_to_go[:-1].detach())
-#
-#         # Lagrange约束项：惩罚cost超出限制
-#         cost_violation = global_cost_enegy_to_go[:-1].mean() - cost_limits['energy']
-#         lagrange_enegy_term = lagrange_energy() * cost_violation
-#
-#         # loss cost violation
-#         cost_violation_loss = global_cost_loss_to_go[:-1].mean() - cost_limits['loss']
-#         lagrange_loss_term = lagrange_loss() * cost_violation_loss
-#
-#         # 总损失：最大化reward + 约束cost
-#         total_loss = actor_loss + critic_loss + global_critic_loss + lagrange_loss_term+ lagrange_enegy_term
-#
-#         optimizer_a.zero_grad()
-#         optimizer_c.zero_grad()
-#         mac.optim_global_critic.zero_grad()
-#         total_loss.backward()
-#         optimizer_a.step()
-#         optimizer_c.step()
-#         mac.optim_global_critic.step()
-#
-#         lagrange_energy.update(cost_violation)
-#         lagrange_loss.update(cost_violation_loss)
-#
-#
-#         # 4. 全局网络（可选：辅助优化/target value）
-#         # joint_obs = obs_batch.reshape(obs_batch.shape[0], -1)  # [T, n_agents*obs_dim]
-#         # mac.global_critic(joint_obs)  # ...
-#
-#         if ep % 10 == 0:
-#             print(f"\nEpisode {ep}: reward={ep_reward:.2f} energy={ep_energy_cost:.2f} loss={ep_loss_cost:.2f} λ_e={lagrange_energy().item():.2f}\n")
-
