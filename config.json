@@ -9,7 +9,7 @@
   "train_seed": 42,
   "predict_seed": 100,
   "train": {
-    "num_episodes": 300,
+    "num_episodes": 30,
     "gamma": 0.98,
     "cost_limits": {
       "energy": 10.0,
@@ -17,7 +17,7 @@
     },
     "train_queries": 600,
     "max_time": 574,
-    "batch_size": 50,
+    "batch_size": 30,
     "learning_rates": {
       "actor": 1e-3,
       "critic": 1e-3,
