@@ -31,26 +31,36 @@ class LagrangeMultiplier:
 
 
 # === 训练主循环 ===
+import os
+import json
+from datetime import datetime
+
 def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device='cpu', batch_size=50):
     """
     内存优化版本的分批次处理episode数据的训练主循环
-
-    修复了以下问题：
-    1. Cost数据处理 - 确保存储标量值而非数组
-    2. 张量创建优化 - 使用torch.from_numpy提高性能
-    3. 尺寸匹配 - 确保所有张量尺寸正确
-    4. 变量作用域 - 确保所有变量都正确定义
-    5. 拉格朗日乘子更新 - 确保传入tensor类型
-    6. Actor网络输出处理 - 修复logits vs 概率的问题
     """
     n_agents = mac.n_agents
     cost_limits = cost_limits or {'energy': 0.5, 'loss': 5}
+
+    # 创建日志目录
+    log_dir = "training_logs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # 创建本次训练的时间戳目录
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    current_log_dir = os.path.join(log_dir, f"training_{timestamp}")
+    if not os.path.exists(current_log_dir):
+        os.makedirs(current_log_dir)
 
     # 初始化拉格朗日乘子
     lagrange_energy = LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
     lagrange_loss = LagrangeMultiplier(init_value=1.0, lr=0.01, device=device)
 
     for ep in range(num_episodes):
+        # 为每个episode创建单独的日志文件
+        episode_log_file = os.path.join(current_log_dir, f"episode_{ep:04d}.log")
+        
         obs = env.reset()
         done = False
         ep_reward = 0
@@ -69,6 +79,15 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
         # 调试信息：在第一个episode打印数据格式
         debug_first_step = (ep == 0)
 
+        time_count = 0
+        
+        # 写入episode开始信息到日志文件
+        with open(episode_log_file, 'w', encoding='utf-8') as f:
+            f.write(f"=== Episode {ep} 开始 ===\n")
+            f.write(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Episode参数: reward=0, energy_cost=0, loss_cost=0\n")
+            f.write("-" * 50 + "\n")
+        
         # 1. 运行当前episode，只收集必要数据
         while not done:
             neighbors = env._build_neighbors()
@@ -78,10 +97,17 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
             # 处理cost数据，确保是标量值
             # 调试信息：在第一步打印cost数据格式
             if debug_first_step and step_count == 0:
-                print(
-                    f"Debug - costs['energy'] type: {type(costs['energy'])}, shape: {getattr(costs['energy'], 'shape', 'scalar')}")
-                print(
-                    f"Debug - costs['loss'] type: {type(costs['loss'])}, shape: {getattr(costs['loss'], 'shape', 'scalar')}")
+                debug_info = (
+                    f"Debug - costs['energy'] type: {type(costs['energy'])}, "
+                    f"shape: {getattr(costs['energy'], 'shape', 'scalar')}\n"
+                    f"Debug - costs['loss'] type: {type(costs['loss'])}, "
+                    f"shape: {getattr(costs['loss'], 'shape', 'scalar')}\n"
+                )
+                print(debug_info)  # 调试信息仍然打印到终端
+                
+                # 同时写入日志文件
+                with open(episode_log_file, 'a', encoding='utf-8') as f:
+                    f.write(debug_info)
 
             # 确保cost是标量值（对所有智能体求和）
             current_energy_cost = np.sum(costs['energy']) if hasattr(costs['energy'], '__len__') else costs['energy']
@@ -101,6 +127,24 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
             ep_reward += np.sum(rewards)
             ep_energy_cost += current_energy_cost
             ep_loss_cost += current_loss_cost
+            
+            # 将原来的打印信息写入文件
+            log_message = f"第{ep}轮,第{time_count}功传递info:{info}\n"
+            with open(episode_log_file, 'a', encoding='utf-8') as f:
+                f.write(log_message)
+                
+            time_count = time_count + 1
+
+        # 写入episode结束信息
+        with open(episode_log_file, 'a', encoding='utf-8') as f:
+            f.write("-" * 50 + "\n")
+            f.write(f"=== Episode {ep} 结束 ===\n")
+            f.write(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"总步数: {time_count}\n")
+            f.write(f"总奖励: {ep_reward:.2f}\n")
+            f.write(f"总能量消耗: {ep_energy_cost:.2f}\n")
+            f.write(f"总丢包损失: {ep_loss_cost:.2f}\n")
+            f.write("=" * 50 + "\n")
 
         T = len(obs_list)
         if T == 0:
@@ -276,13 +320,36 @@ def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device
              cost_loss_list, global_obs_list, global_cost_energy_to_go,
              global_cost_loss_to_go)
 
-        # 打印训练日志
+        # 打印训练日志（只显示关键信息）
         if ep % 1 == 0:
-            print(
+            summary_msg = (
                 f"\nEpisode {ep}: reward={ep_reward:.2f} energy={ep_energy_cost:.2f} "
                 f"loss={ep_loss_cost:.2f} λ_e={lagrange_energy().item():.2f} "
                 f"λ_l={lagrange_loss().item():.2f} steps={T}"
             )
+            print(summary_msg)
+            
+            # 同时写入总结日志文件
+            summary_log_file = os.path.join(current_log_dir, "training_summary.log")
+            with open(summary_log_file, 'a', encoding='utf-8') as f:
+                f.write(summary_msg + "\n")
+
+    # 训练结束，写入总结信息
+    final_summary_file = os.path.join(current_log_dir, "final_summary.log")
+    with open(final_summary_file, 'w', encoding='utf-8') as f:
+        f.write(f"训练完成!\n")
+        f.write(f"总Episodes: {num_episodes}\n")
+        f.write(f"最终拉格朗日乘子 - Energy: {lagrange_energy().item():.4f}\n")
+        f.write(f"最终拉格朗日乘子 - Loss: {lagrange_loss().item():.4f}\n")
+        f.write(f"日志保存位置: {current_log_dir}\n")
+        f.write(f"完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    print(f"\n训练完成! 所有日志已保存到: {current_log_dir}")
+    print(f"- 每个episode的详细日志: episode_XXXX.log")
+    print(f"- 训练摘要: training_summary.log") 
+    print(f"- 最终总结: final_summary.log")
+
+
 # def train_cmadr(env, mac, num_episodes=500, gamma=0.98, cost_limits=None, device='cpu'):
 #     """
 #     env: ISTNEnv

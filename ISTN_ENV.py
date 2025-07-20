@@ -309,7 +309,7 @@ class ISTNEnv:
                     # 若目标是地面站且正好为目的地，则交付
                     if (target_neighbor >= self.num_satellites) and ((target_neighbor - self.num_satellites) == dst_gs):
                         delivered_packets.append(pkt)
-                        print("成功交付一个数据包到终点！")
+                        #print("成功交付一个数据包到终点！")
                         tgt_node['buffer'].pop()  # 交付出队
                         # 成功交付奖励
                         hop_bonus = max(0, 20 - pkt['hop'])  # 增加hop奖励上限
