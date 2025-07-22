@@ -25,7 +25,7 @@
     }
   },
   "predict": {
-    "model_path": "round_300_LEO_01",
+    "model_path": "round_30_LEO_01",
     "max_time": 574,
     "predict_queries": 600
   },
